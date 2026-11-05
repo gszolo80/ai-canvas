@@ -26,6 +26,7 @@
   };
   const imgCache = {}; // src -> HTMLImageElement
   const imgFailed = new Set(); // 加载失败的图片地址
+  let palTarget = "color"; // 常用色板当前作用目标：color / strokeColor / glowColor
   let uidCounter = 1;
   const uid = () => "L" + (uidCounter++);
 
@@ -44,6 +45,43 @@
   }
   function textName(l) {
     return "文字 · " + (l.fontName || "") + (l.role ? " · " + l.role : " · 自定义");
+  }
+
+  // 渐变字预设：angle 为渐变方向（0=从左到右，90=从上到下）
+  const GRADIENTS = [
+    { id: "sunset", name: "日落", angle: 90, stops: [["#ff7a18", 0], ["#ff3d81", 1]] },
+    { id: "sakura", name: "樱花", angle: 90, stops: [["#ff9a9e", 0], ["#fad0c4", 1]] },
+    { id: "ocean", name: "海洋", angle: 90, stops: [["#2193b0", 0], ["#6dd5ed", 1]] },
+    { id: "mint", name: "薄荷", angle: 90, stops: [["#43e97b", 0], ["#38f9d7", 1]] },
+    { id: "violet", name: "紫梦", angle: 90, stops: [["#a18cd1", 0], ["#fbc2eb", 1]] },
+    { id: "gold", name: "鎏金", angle: 90, stops: [["#f7971e", 0], ["#ffd200", 1]] },
+    { id: "night", name: "夜空", angle: 90, stops: [["#232526", 0], ["#5a5f66", 1]] },
+    { id: "fire", name: "烈焰", angle: 90, stops: [["#f83600", 0], ["#f9d423", 1]] },
+    { id: "galaxy", name: "星河", angle: 90, stops: [["#667eea", 0], ["#764ba2", 1]] },
+  ];
+  const GRAD_MAP = Object.fromEntries(GRADIENTS.map((g) => [g.id, g]));
+
+  // 常用色板（点一下直接套到 字色/描边/发光）
+  const PALETTE = [
+    "#111827", "#374151", "#6b7280", "#9ca3af", "#d1d5db", "#ffffff",
+    "#e5484d", "#e8590c", "#f59e0b", "#facc15", "#84cc16", "#22c55e",
+    "#10b981", "#06b6d4", "#3b82f6", "#5b5bd6", "#8b5cf6", "#ec4899",
+  ];
+
+  // 文字填充样式：有渐变用渐变，否则用纯色
+  function textFillStyle(c, l, tw, th) {
+    const g = l.gradient && GRAD_MAP[l.gradient];
+    if (!g) return l.color || "#1a1a1a";
+    const a = (g.angle * Math.PI) / 180;
+    const dx = Math.cos(a), dy = Math.sin(a);
+    const cx = tw / 2, cy = th / 2;
+    const len = Math.max(1, Math.abs(tw * dx) + Math.abs(th * dy));
+    const grad = c.createLinearGradient(
+      cx - (dx * len) / 2, cy - (dy * len) / 2,
+      cx + (dx * len) / 2, cy + (dy * len) / 2
+    );
+    g.stops.forEach(([color, p]) => grad.addColorStop(p, color));
+    return grad;
   }
 
   // ---------- DOM ----------
@@ -341,8 +379,8 @@
           ctx.strokeText(l.text, 0, 0);
           ctx.restore();
         }
-        // ③ 正文字色
-        ctx.fillStyle = l.color || "#1a1a1a";
+        // ③ 正文字色（有渐变则用渐变填充）
+        ctx.fillStyle = textFillStyle(ctx, l, tw, th);
         ctx.fillText(l.text, 0, 0);
 
         ctx.restore(); // 坐标系
@@ -918,6 +956,59 @@
     const op = l.opacity != null ? l.opacity : 1;
     $("#tpOpacity").value = op;
     $("#tpOpVal").textContent = Math.round(op * 100) + "%";
+    // 渐变条高亮同步
+    $("#tpGradVal").textContent = (l.gradient && GRAD_MAP[l.gradient]) ? GRAD_MAP[l.gradient].name : "纯色";
+    document.querySelectorAll("#gradRow .gchip").forEach((b) => {
+      b.classList.toggle("on", (b.dataset.gid || "") === (l.gradient || ""));
+    });
+  }
+
+  // 渐变预设条：点一下直接套用，再点「纯色」取消
+  function buildGradRow() {
+    const row = $("#gradRow");
+    if (!row) return;
+    row.innerHTML =
+      `<button class="gchip none" data-gid="" title="取消渐变（用纯色）">纯色</button>` +
+      GRADIENTS.map((g) => {
+        const css = `linear-gradient(180deg, ${g.stops[0][0]}, ${g.stops[1][0]})`;
+        return `<button class="gchip" data-gid="${g.id}" title="${g.name}" style="background:${css}"></button>`;
+      }).join("");
+    row.querySelectorAll(".gchip").forEach((b) => {
+      b.onclick = () => {
+        const l = getLayer(state.selectedId);
+        if (!l || l.type !== "text") { toast("先在画布上选中一个文字层"); return; }
+        l.gradient = b.dataset.gid || null;
+        render(); updateTextProps();
+        toast(l.gradient ? "已套用渐变：" + GRAD_MAP[l.gradient].name : "已切回纯色");
+      };
+    });
+  }
+
+  // 常用色板：先选目标（字色/描边/发光），再点色块套用
+  function buildPalette() {
+    const grid = $("#palGrid");
+    if (!grid) return;
+    grid.innerHTML = PALETTE.map((c) =>
+      `<button class="pchip" data-c="${c}" title="${c}" style="background:${c}"></button>`
+    ).join("");
+    grid.querySelectorAll(".pchip").forEach((b) => {
+      b.onclick = () => {
+        const l = getLayer(state.selectedId);
+        if (!l || l.type !== "text") { toast("先在画布上选中一个文字层"); return; }
+        l[palTarget] = b.dataset.c;
+        if (palTarget === "color") l.gradient = null; // 选纯色即取消渐变
+        render(); updateTextProps();
+      };
+    });
+    const box = $("#palTargets");
+    if (box) {
+      box.querySelectorAll(".pal-t").forEach((btn) => {
+        btn.onclick = () => {
+          palTarget = btn.dataset.target;
+          box.querySelectorAll(".pal-t").forEach((x) => x.classList.toggle("on", x === btn));
+        };
+      });
+    }
   }
 
   // ---------- 出图 ----------
@@ -1181,9 +1272,11 @@
     };
 
     // 文字属性控件
+    buildGradRow();
+    buildPalette();
     $("#tpColor").addEventListener("input", () => {
       const l = getLayer(state.selectedId);
-      if (l && l.type === "text") { l.color = $("#tpColor").value; render(); }
+      if (l && l.type === "text") { l.color = $("#tpColor").value; l.gradient = null; render(); updateTextProps(); }
     });
     $("#tpSize").addEventListener("input", () => {
       const l = getLayer(state.selectedId);

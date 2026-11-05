@@ -192,7 +192,11 @@ body {
 
 /* 字体卡 */
 .font-card { padding: 14px 10px 12px; text-align: center; }
-.font-card .sample { font-size: 28px; line-height: 1.25; color: var(--ink); word-break: break-all; }
+.font-card .sample {
+  font-size: 21px; line-height: 1.3; color: var(--ink);
+  white-space: nowrap; overflow: hidden;
+  letter-spacing: -.4px;
+}
 .font-card .fname { font-size: 12px; font-weight: 600; margin-top: 8px; color: var(--ink); }
 .font-card .flic { font-size: 10.5px; color: var(--ink-3); margin-top: 2px; }
 .font-card .drag-hint { font-size: 10px; color: var(--accent); margin-top: 5px; }
@@ -429,6 +433,37 @@ body {
   font-size: 11px; font-weight: 700; color: var(--ink-3); letter-spacing: .5px;
   margin: 14px 0 2px; padding-top: 9px; border-top: 1px dashed var(--border);
 }
+
+/* 渐变字预设条 */
+.grad-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; margin: 6px 0 2px; }
+.gchip {
+  height: 26px; border-radius: 6px; border: 1px solid var(--border-strong);
+  cursor: pointer; padding: 0; position: relative; overflow: hidden;
+  transition: transform .12s, box-shadow .12s;
+}
+.gchip:hover { transform: translateY(-1px); }
+.gchip.on { box-shadow: 0 0 0 2px #fff, 0 0 0 3.5px var(--accent); }
+.gchip.none {
+  background: var(--surface); color: var(--ink-3);
+  font-size: 9.5px; font-weight: 600; font-family: inherit;
+  display: flex; align-items: center; justify-content: center; letter-spacing: -.3px;
+}
+.gchip.none.on { color: var(--accent); }
+
+/* 常用色板 */
+.pal-targets { display: flex; gap: 5px; margin: 7px 0 6px; }
+.pal-t {
+  flex: 1; font-family: inherit; font-size: 11px; cursor: pointer;
+  padding: 4px 0; border-radius: 6px; border: 1px solid var(--border-strong);
+  background: var(--surface); color: var(--ink-2); transition: all .14s;
+}
+.pal-t.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
+.pal-grid { display: grid; grid-template-columns: repeat(9, 1fr); gap: 4px; }
+.pchip {
+  aspect-ratio: 1 / 1; border-radius: 5px; cursor: pointer; padding: 0;
+  border: 1px solid rgba(16,18,29,.14); transition: transform .1s, box-shadow .1s;
+}
+.pchip:hover { transform: scale(1.14); box-shadow: 0 2px 6px rgba(16,18,29,.22); z-index: 2; }
 
 /* ============ 全屏画布（聚焦模式） ============ */
 body.focus-canvas .panel-left,

@@ -7,7 +7,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@400;600&family=ZCOOL+KuaiLe&family=ZCOOL+XiaoWei&family=ZCOOL+QingKe+HuangYou&family=Ma+Shan+Zheng&family=Liu+Jian+Mao+Cao&family=Long+Cang&family=Zhi+Mang+Xing&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=20261105d" />
+  <!-- 免费商用字体（在线加载；加载失败会自动回退系统字体，不影响使用） -->
+  <link rel="stylesheet" href="https://cdn.staticfile.org/lxgw-wenkai-webfont/1.7.0/style.css" />
+  <link rel="stylesheet" href="https://cdn.staticfile.org/lxgw-wenkai-screen-webfont/1.7.0/style.css" />
+  <link rel="stylesheet" href="https://unpkg.com/misans@5.0.0/lib/Normal/MiSans-Regular.min.css" />
+  <link rel="stylesheet" href="https://unpkg.com/misans@5.0.0/lib/Normal/MiSans-Bold.min.css" />
+  <link rel="stylesheet" href="styles.css?v=20261105e" />
 </head>
 <body>
   <!-- 顶栏 -->
@@ -111,6 +116,10 @@
           <span class="lbl">字色</span>
           <input type="color" id="tpColor" class="inp color-inp" value="#1a1a1a" />
         </div>
+
+        <label class="lbl">渐变字（点一下即套用）<span class="val" id="tpGradVal">纯色</span></label>
+        <div class="grad-row" id="gradRow"></div>
+
         <label class="lbl">字号（px）<span class="val" id="tpSizeVal"></span></label>
         <input type="range" id="tpSize" class="inp" min="8" max="800" step="1" value="60" />
         <label class="lbl">角度（°）<span class="val" id="tpAngleVal"></span></label>
@@ -131,6 +140,14 @@
           <span class="lbl">发光色</span>
           <input type="color" id="tpGlowColor" class="inp color-inp" value="#5b5bd6" />
         </div>
+
+        <div class="tp-sep">常用色（点一下即套用）</div>
+        <div class="pal-targets" id="palTargets">
+          <button class="pal-t on" data-target="color" title="改字色">字色</button>
+          <button class="pal-t" data-target="strokeColor" title="改描边色">描边</button>
+          <button class="pal-t" data-target="glowColor" title="改发光色">发光</button>
+        </div>
+        <div class="pal-grid" id="palGrid"></div>
 
         <label class="lbl" style="margin-top:12px"><input type="checkbox" id="tpBold" /> 加粗</label>
         <label class="lbl">不透明度 <span class="val" id="tpOpVal"></span></label>
@@ -231,7 +248,7 @@
 
   <div id="toast" class="toast" hidden></div>
 
-  <script src="data.js?v=20261105d"></script>
-  <script src="app.js?v=20261105d"></script>
+  <script src="data.js?v=20261105e"></script>
+  <script src="app.js?v=20261105e"></script>
 </body>
 </html>
