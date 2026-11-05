@@ -147,6 +147,8 @@
     canvas.width = d.w;
     canvas.height = d.h;
     render();
+    // 画幅变了，提示词里的【尺寸】必须跟着同步
+    if (typeof buildPrompt === "function" && promptOut) buildPrompt();
   }
 
   // ---------- 画布坐标换算 ----------
@@ -768,11 +770,32 @@
   });
 
   // ---------- 提示词组装 ----------
+  // 画幅规格（像素 + 比例 + 横竖），供提示词与配方使用
+  function gcdNum(a, b) { a = Math.abs(a); b = Math.abs(b); while (b) { const t = b; b = a % b; a = t; } return a || 1; }
+  function ratioOf(w, h) {
+    const k = gcdNum(Math.round(w), Math.round(h));
+    const a = Math.round(w) / k, b = Math.round(h) / k;
+    if (a <= 50 && b <= 50) return a + ":" + b;      // 能化简成紧凑整数比
+    return "≈" + (w / h).toFixed(2) + ":1";          // 否则给小数近似
+  }
+  function sizeSpec() {
+    const d = curDims();
+    const r = RATIOS[state.ratioIdx];
+    const isPreset = r && r.id !== "custom";
+    const rid = isPreset ? r.id : ratioOf(d.w, d.h);
+    const ori = d.w === d.h ? "方图" : (d.w > d.h ? "横版" : "竖版");
+    const lbl = (isPreset && r.label) ? r.label : "";
+    return { w: d.w, h: d.h, ratio: rid, orient: ori, label: lbl };
+  }
+
   function buildPrompt() {
     const c = state.current;
     const p = state.settings.prompt;
     const parts = [];
     if (p.anchor.trim()) parts.push(p.anchor.trim());
+    // 【尺寸】必须始终在提示词里：出图模型按这个画幅生成，否则比例会跑偏
+    const sp = sizeSpec();
+    parts.push("【尺寸】" + sp.w + "×" + sp.h + " px，比例 " + sp.ratio + "，" + sp.orient);
     if (c.style) parts.push("【风格】" + c.style.prompt);
     if (c.layout) parts.push("【排版】" + c.layout.prompt);
     if (c.color) parts.push("【配色】" + c.color.prompt);
@@ -971,6 +994,7 @@
       app: "AI画布生图",
       version: "1.0",
       ratio: (RATIOS[state.ratioIdx] && RATIOS[state.ratioIdx].id !== "custom") ? ratio().id : (curDims().w + "x" + curDims().h),
+      size: (() => { const s = sizeSpec(); return { w: s.w, h: s.h, ratio: s.ratio, orient: s.orient }; })(),
       style: state.current.style ? { id: state.current.style.id, prompt: state.current.style.prompt } : null,
       layout: state.current.layout ? { id: state.current.layout.id, prompt: state.current.layout.prompt } : null,
       color: state.current.color ? { id: state.current.color.id, name: state.current.color.name, hex: state.current.color.hex } : null,
@@ -989,6 +1013,7 @@
   function exportMd() {
     const r = recipeObject();
     let md = `# AI 画布生图 · 配方\n\n`;
+    md += `- 尺寸：${r.size.w}×${r.size.h} px（${r.size.ratio}，${r.size.orient}）\n`;
     md += `- 比例：${r.ratio}\n`;
     if (r.style) md += `- 风格：${r.style.id} — ${r.style.prompt}\n`;
     if (r.layout) md += `- 排版：${r.layout.id} — ${r.layout.prompt}\n`;
