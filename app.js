@@ -56,7 +56,18 @@
     if (/^https?:\/\//i.test(src) && !/^https?:\/\/(localhost|127\.0\.0\.1)/i.test(src)) {
       im.crossOrigin = "anonymous";
     }
-    im.onload = () => { imgCache[src] = im; if (cb) cb(im); render(); };
+    im.onload = () => {
+      imgCache[src] = im;
+      // 非参考图片（我的图片 / 生成图）：首次加载按原图比例设高，避免被默认值拉变形
+      const nat = im.naturalHeight / (im.naturalWidth || 1);
+      if (nat > 0) {
+        for (const l of state.layers) {
+          if (l.src === src && !l.isRef && !l.userResized && l.type === "image") l.h = l.w * nat;
+        }
+      }
+      if (cb) cb(im);
+      render();
+    };
     im.onerror = () => { /* 占位由 render 处理 */ };
     im.src = src;
     imgCache[src] = im;
@@ -170,9 +181,22 @@
   }
 
   // ---------- 渲染 ----------
+  // 把图片按比例贴合进目标框（contain，不变形）
+  function drawImageContain(im, x, y, w, h) {
+    const iw = im.naturalWidth || w, ih = im.naturalHeight || h;
+    const ar = iw / ih, fr = w / h;
+    let dw, dh;
+    if (ar > fr) { dw = w; dh = w / ar; } else { dh = h; dw = h * ar; }
+    const dx = x + (w - dw) / 2, dy = y + (h - dh) / 2;
+    ctx.drawImage(im, dx, dy, dw, dh);
+  }
+  function handleSizeCanvas() {
+    const rect = canvas.getBoundingClientRect();
+    const scale = canvas.width / (rect.width || canvas.width);
+    return 11 * scale; // 屏幕上约 11px 的手柄
+  }
   function render() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    // 白底
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -185,7 +209,9 @@
         const im = imgCache[l.src];
         ctx.globalAlpha = l.opacity != null ? l.opacity : 1;
         if (im && im.complete && im.naturalWidth) {
-          ctx.drawImage(im, l.x, l.y, l.w, l.h);
+          // 排版参考铺满（作构图模板）；其余图片按比例贴合，不变形
+          if (l.layoutFill) ctx.drawImage(im, l.x, l.y, l.w, l.h);
+          else drawImageContain(im, l.x, l.y, l.w, l.h);
         } else {
           ctx.fillStyle = "#e6e8ef";
           ctx.fillRect(l.x, l.y, l.w, l.h);
@@ -194,18 +220,24 @@
           ctx.fillText("图", l.x + l.w / 2 - 8, l.y + l.h / 2);
         }
         ctx.globalAlpha = 1;
-        // 参考层（风格/排版/角色参考）加虚线框 + 标签，明确这是“参考/模板”而非成品
+        // 参考层（风格/排版/角色参考）加虚线框 + 标签
         if (l.isRef) {
           ctx.save();
-          ctx.strokeStyle = "rgba(99,102,241,0.55)";
-          ctx.lineWidth = 2;
-          ctx.setLineDash([10, 7]);
+          ctx.strokeStyle = "rgba(91,91,214,0.6)";
+          ctx.lineWidth = Math.max(1.5, canvas.width / 500);
+          ctx.setLineDash([9, 6]);
           ctx.strokeRect(l.x + 1, l.y + 1, l.w - 2, l.h - 2);
           ctx.setLineDash([]);
-          ctx.fillStyle = "rgba(99,102,241,0.95)";
-          ctx.font = "600 15px sans-serif";
-          ctx.textBaseline = "top";
-          ctx.fillText(l.name || "参考", l.x + 8, l.y + 8);
+          // 标签胶囊
+          ctx.font = "600 14px " + getComputedStyle(document.body).fontFamily;
+          const label = l.name || "参考";
+          const tw = ctx.measureText(label).width;
+          ctx.fillStyle = "rgba(91,91,214,0.95)";
+          roundRect(l.x + 8, l.y + 8, tw + 18, 24, 6);
+          ctx.fill();
+          ctx.fillStyle = "#fff";
+          ctx.textBaseline = "middle";
+          ctx.fillText(label, l.x + 17, l.y + 20);
           ctx.restore();
         }
       } else if (l.type === "text") {
@@ -216,34 +248,56 @@
         ctx.fillText(l.text, l.x, l.y);
       }
     }
-    // 选中框
+    // 选中框 + 四角缩放手柄
+    state._handles = [];
     const sel = getLayer(state.selectedId);
-    if (sel) {
+    if (sel && sel.type !== "color") {
       const b = layerBox(sel);
-      ctx.strokeStyle = "#6366f1";
-      ctx.lineWidth = Math.max(2, canvas.width / 300);
-      ctx.setLineDash([canvas.width / 120, canvas.width / 80]);
+      ctx.strokeStyle = "#5b5bd6";
+      ctx.lineWidth = Math.max(1.5, canvas.width / 500);
+      ctx.setLineDash([canvas.width / 110, canvas.width / 70]);
       ctx.strokeRect(b.x, b.y, b.w, b.h);
       ctx.setLineDash([]);
+      const hs = handleSizeCanvas();
+      const corners = [[b.x, b.y], [b.x + b.w, b.y], [b.x, b.y + b.h], [b.x + b.w, b.y + b.h]];
+      state._handles = corners.map(([hx, hy]) => ({ x: hx, y: hy }));
+      ctx.fillStyle = "#fff";
+      ctx.strokeStyle = "#5b5bd6";
+      ctx.lineWidth = Math.max(1.5, canvas.width / 600);
+      corners.forEach(([hx, hy]) => {
+        ctx.beginPath();
+        ctx.rect(hx - hs / 2, hy - hs / 2, hs, hs);
+        ctx.fill(); ctx.stroke();
+      });
     }
+  }
+  function roundRect(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
   }
 
   // ---------- 拖拽：卡片 -> 画布 ----------
   function addFromCard(tab, id, point) {
     const cx = point && point.inside ? point.x : canvas.width / 2;
     const cy = point && point.inside ? point.y : canvas.height / 2;
+    const refSide = Math.round(canvas.width * 0.24); // 参考卡统一尺寸（风格/角色一致）
     if (tab === "style") {
       const s = allStyles().find((x) => x.id === id);
       if (!s) return;
       state.current.style = s;
-      addLayer({ type: "image", src: s.img, x: 24, y: 24, w: canvas.width * 0.22, h: canvas.width * 0.22, opacity: 0.95, isRef: true, name: "风格参考 " + s.id });
+      addLayer({ type: "image", src: s.img, x: 24, y: 24, w: refSide, h: refSide, opacity: 0.95, isRef: true, name: "风格 · " + s.id });
       toast("已设为风格：" + s.id + "，并放入参考图");
     } else if (tab === "layout") {
       const l = LAYOUTS.find((x) => x.id === id);
       if (!l) return;
       state.current.layout = l;
-      addLayer({ type: "image", src: l.img, x: 0, y: 0, w: canvas.width, h: canvas.height, opacity: 0.32, isRef: true, name: "排版模板 " + l.id });
-      toast("已设为排版：" + l.id + "（半透明构图参考）");
+      addLayer({ type: "image", src: l.img, x: 0, y: 0, w: canvas.width, h: canvas.height, opacity: 0.32, isRef: true, layoutFill: true, name: "排版 · " + l.id });
+      toast("已设为排版：" + l.id + "（半透明构图参考，可缩放）");
     } else if (tab === "color") {
       const c = COLORS.find((x) => x.id === id);
       if (!c) return;
@@ -257,18 +311,19 @@
       const f = FONTS.find((x) => x.name === id) || (state.customFonts || []).find((x) => x.name === id);
       if (!f) return;
       state.current.font = f;
-      addLayer({ type: "text", text: "双击编辑文字", fontCss: f.css, color: "#1a1a1a", size: Math.round(canvas.width * 0.07), x: canvas.width * 0.1, y: canvas.height * 0.4, name: "文字 " + f.name });
+      addLayer({ type: "text", text: "双击编辑文字", fontCss: f.css, color: "#1a1a1a", size: Math.round(canvas.width * 0.07), x: canvas.width * 0.1, y: canvas.height * 0.4, name: "文字 · " + f.name });
       toast("已加入文字层（" + f.name + "），双击改字");
     } else if (tab === "character") {
       const ch = state.characters.find((x) => x.id === id);
       if (!ch) return;
       setMainCharacter(ch.id);
-      addLayer({ type: "image", src: ch.src, x: 24, y: 24, w: canvas.width * 0.22, h: canvas.width * 0.22, opacity: 0.95, isRef: true, name: "角色参考 " + (ch.name || ch.id) });
+      addLayer({ type: "image", src: ch.src, x: 24, y: 24 + refSide + 14, w: refSide, h: refSide, opacity: 0.95, isRef: true, name: "角色 · " + (ch.name || ch.id) });
       toast("已锁定主角，并放入参考图");
     } else if (tab === "mine") {
       const m = state.mine.find((x) => x.id === id);
       if (!m) return;
-      addLayer({ type: "image", src: m.src, x: cx - canvas.width * 0.25, y: cy - canvas.height * 0.25, w: canvas.width * 0.5, h: canvas.height * 0.5, name: m.name || "图片" });
+      const side = Math.round(canvas.width * 0.5);
+      addLayer({ type: "image", src: m.src, x: cx - side / 2, y: cy - side / 2, w: side, h: side, name: m.name || "图片" });
     }
     refreshChips(); buildPrompt();
   }
@@ -327,7 +382,9 @@
       const hasMore = filtered.length > gridLimit;
       const tools = isStyle ? `<button class="mini-btn" id="btnNewStyle">＋ 自定义风格</button>` : "";
       const chips = catList.map((c) => `<button class="cat ${c === cur ? "active" : ""}" data-cat="${c}">${c}${c === "全部" ? "" : " ·" + (counts[c] || 0)}</button>`).join("");
-      tabBody.innerHTML = `<div class="tab-tools">${tools}</div><div class="catbar">${chips}</div><div class="grid">${visible.map((it) => cardHTML(tab, it)).join("")}</div>` +
+      const meta = `<div class="lib-meta">共 ${filtered.length} 项${cur !== "全部" ? " · 已筛选「" + cur + "」" : ""}</div>`;
+      const filter = `<div class="filter-block"><div class="filter-title">分类筛选</div><div class="catbar">${chips}</div></div>`;
+      tabBody.innerHTML = `<div class="tab-tools">${tools}</div>${filter}${meta}<div class="grid">${visible.map((it) => cardHTML(tab, it)).join("")}</div>` +
         (hasMore ? `<div class="loadmore"><button class="mini-btn" id="btnLoadMore">加载更多（还剩 ${filtered.length - gridLimit} 张）</button></div>` : "");
     } else if (tab === "color") {
       tabBody.innerHTML = `<div class="grid">${COLORS.map((it) => cardHTML("color", it)).join("")}</div>`;
@@ -487,15 +544,35 @@
     if (tabsEl.querySelector(".tab.active").dataset.tab === "character") renderTab("character");
   }
 
-  // ---------- 画布上的交互（选择/移动/缩放/编辑） ----------
+  // ---------- 画布上的交互（选择 / 移动 / 缩放 / 编辑） ----------
   let drag = null;
+  function hitHandle(p) {
+    if (!state._handles) return -1;
+    const tol = handleSizeCanvas() * 1.3;
+    for (let i = 0; i < state._handles.length; i++) {
+      const h = state._handles[i];
+      if (Math.abs(p.x - h.x) <= tol && Math.abs(p.y - h.y) <= tol) return i;
+    }
+    return -1;
+  }
   canvas.addEventListener("pointerdown", (e) => {
     const p = toCanvas(e.clientX, e.clientY);
+    const sel = getLayer(state.selectedId);
+    const hi = sel ? hitHandle(p) : -1;
+    if (hi >= 0 && sel) {
+      // 缩放模式：固定对角角点，记录初始尺寸
+      const b = layerBox(sel);
+      const fx = (hi === 0 || hi === 2) ? b.x + b.w : b.x;
+      const fy = (hi === 0 || hi === 1) ? b.y + b.h : b.y;
+      drag = { mode: "resize", id: sel.id, fx, fy, ow: b.w, oh: b.h, baseSize: sel.type === "text" ? sel.size : 0 };
+      canvas.setPointerCapture(e.pointerId);
+      return;
+    }
     const hit = hitTest(p.x, p.y);
     if (hit) {
       state.selectedId = hit.id;
       const b = layerBox(hit);
-      drag = { id: hit.id, ox: p.x - b.x, oy: p.y - b.y };
+      drag = { mode: "move", id: hit.id, ox: p.x - b.x, oy: p.y - b.y };
       canvas.setPointerCapture(e.pointerId);
       refreshLayers();
     } else {
@@ -509,8 +586,23 @@
     const p = toCanvas(e.clientX, e.clientY);
     const l = getLayer(drag.id);
     if (!l || l.type === "color") return;
-    l.x = p.x - drag.ox;
-    l.y = p.y - drag.oy;
+    if (drag.mode === "move") {
+      l.x = p.x - drag.ox;
+      l.y = p.y - drag.oy;
+    } else {
+      l.userResized = true;
+      const nx = Math.min(p.x, drag.fx), ny = Math.min(p.y, drag.fy);
+      const minS = Math.max(16, canvas.width * 0.02);
+      let nw = Math.max(minS, Math.abs(p.x - drag.fx));
+      let nh = Math.max(minS, Math.abs(p.y - drag.fy));
+      if (l.type === "text") {
+        const ratio = Math.sqrt(nw * nw + nh * nh) / Math.sqrt(drag.ow * drag.ow + drag.oh * drag.oh);
+        l.size = Math.max(8, Math.round(drag.baseSize * ratio));
+        l.x = nx; l.y = ny;
+      } else {
+        l.x = nx; l.y = ny; l.w = nw; l.h = nh;
+      }
+    }
     render();
   });
   canvas.addEventListener("pointerup", (e) => { drag = null; });
@@ -520,7 +612,7 @@
     e.preventDefault();
     const f = e.deltaY < 0 ? 1.06 : 0.94;
     if (l.type === "text") l.size = Math.max(8, Math.round(l.size * f));
-    else { l.w *= f; l.h *= f; }
+    else { l.w *= f; l.h *= f; l.userResized = true; }
     render();
   }, { passive: false });
   canvas.addEventListener("dblclick", (e) => {
