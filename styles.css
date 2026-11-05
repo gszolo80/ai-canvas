@@ -197,6 +197,17 @@ body {
 .font-card .flic { font-size: 10.5px; color: var(--ink-3); margin-top: 2px; }
 .font-card .drag-hint { font-size: 10px; color: var(--accent); margin-top: 5px; }
 
+/* 字体卡：字号层级（主/副/正/署）选择行 —— 2×2 排布，避免标签被挤窄 */
+.font-card .role-row { display: flex; flex-wrap: wrap; gap: 5px; justify-content: center; margin-top: 9px; }
+.role-chip {
+  font-family: inherit; cursor: grab; border: 1px solid var(--border-strong);
+  background: var(--surface); color: var(--ink-2);
+  padding: 4px 0; flex: 0 0 calc(50% - 3px); border-radius: 7px; font-size: 11px; transition: all .15s;
+  white-space: nowrap;
+}
+.role-chip:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.role-chip:active { cursor: grabbing; transform: translateY(1px); }
+
 /* 配色卡 */
 .color-card { display: flex; flex-direction: column; }
 .color-card .swatch { width: 100%; aspect-ratio: 1.4/1; }
@@ -302,7 +313,7 @@ body {
 .layer-list { display: flex; flex-direction: column; gap: 7px; }
 .layer-empty { font-size: 12px; color: var(--ink-3); }
 .layer-item {
-  display: flex; align-items: center; gap: 9px; padding: 8px 10px; border-radius: var(--r-sm);
+  display: flex; align-items: center; flex-wrap: wrap; gap: 9px; padding: 8px 10px; border-radius: var(--r-sm);
   background: var(--surface-2); border: 1px solid var(--border); cursor: pointer; font-size: 12.5px;
   transition: border-color .15s, background .15s;
 }
@@ -318,6 +329,16 @@ body {
 }
 .layer-item .acts button:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
 .layer-tip { font-size: 11px; color: var(--ink-3); margin-top: 10px; line-height: 1.6; }
+
+/* 右侧：文字层字号层级切换 */
+.txt-roles { display: flex; gap: 4px; width: 100%; margin-top: 7px; }
+.rt-role {
+  font-family: inherit; cursor: pointer; border: 1px solid var(--border-strong);
+  background: var(--surface); color: var(--ink-2);
+  flex: 1; padding: 4px 0; border-radius: 7px; font-size: 11px; transition: all .15s;
+}
+.rt-role:hover { border-color: var(--accent); color: var(--accent); }
+.rt-role.on { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600; }
 
 /* ============ 弹窗 / 设置中心 ============ */
 .modal-mask { position: fixed; inset: 0; background: rgba(16,18,29,.38); backdrop-filter: blur(3px);
@@ -397,6 +418,23 @@ body {
 .toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%);
   background: rgba(22,25,34,.94); color: #fff; padding: 11px 20px; border-radius: 10px;
   font-size: 13px; z-index: 80; box-shadow: var(--sh-lg); }
+
+/* 文字属性控件 */
+.val { color: var(--ink); font-weight: 600; margin-left: 4px; }
+.color-inp { padding: 4px; height: 36px; cursor: pointer; }
+.tp-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 8px 0 2px; }
+.tp-row .lbl { margin: 0; }
+.tp-row .color-inp { width: 56px; height: 32px; padding: 3px; flex: 0 0 auto; }
+.tp-sep {
+  font-size: 11px; font-weight: 700; color: var(--ink-3); letter-spacing: .5px;
+  margin: 14px 0 2px; padding-top: 9px; border-top: 1px dashed var(--border);
+}
+
+/* ============ 全屏画布（聚焦模式） ============ */
+body.focus-canvas .panel-left,
+body.focus-canvas .panel-right { display: none !important; }
+body.focus-canvas .layout { grid-template-columns: 1fr; }
+body.focus-canvas .canvas-wrap { padding: 12px; }
 
 /* ============ 响应式 ============ */
 @media (max-width: 1200px) {

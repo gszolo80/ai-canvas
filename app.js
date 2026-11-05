@@ -25,8 +25,26 @@
     },
   };
   const imgCache = {}; // src -> HTMLImageElement
+  const imgFailed = new Set(); // 加载失败的图片地址
   let uidCounter = 1;
   const uid = () => "L" + (uidCounter++);
+
+  // 文字字号层级（命名角色）：主标题 / 副标题 / 正文 / 署名
+  // rel = 相对画布宽度的字号比例；一幅图建议只用这 3–4 种，保持版面统一
+  const TEXT_ROLES = [
+    { key: "主标题", rel: 0.12, ph: "大标题" },
+    { key: "副标题", rel: 0.085, ph: "小标题" },
+    { key: "正文", rel: 0.055, ph: "正文内容" },
+    { key: "署名", rel: 0.032, ph: "@署名" },
+  ];
+  const ROLE_MAP = Object.fromEntries(TEXT_ROLES.map((r) => [r.key, r]));
+  function sizeForRole(role) {
+    const r = ROLE_MAP[role] || ROLE_MAP["正文"];
+    return Math.max(8, Math.round(canvas.width * r.rel));
+  }
+  function textName(l) {
+    return "文字 · " + (l.fontName || "") + (l.role ? " · " + l.role : " · 自定义");
+  }
 
   // ---------- DOM ----------
   const $ = (s) => document.querySelector(s);
@@ -68,7 +86,7 @@
       if (cb) cb(im);
       render();
     };
-    im.onerror = () => { /* 占位由 render 处理 */ };
+    im.onerror = () => { imgFailed.add(src); render(); };
     im.src = src;
     imgCache[src] = im;
     return im;
@@ -147,6 +165,9 @@
     state.layers.push(layer);
     state.selectedId = layer.id;
     emptyState.style.display = "none";
+    // 关键：图片层必须在这里主动触发加载。
+    // 否则 imgCache 里没有这条记录，render() 永远走占位分支 → 画布上「只有框没有图」。
+    if (layer.type === "image" && layer.src) getImage(layer.src);
     refreshLayers();
     render();
   }
@@ -165,9 +186,15 @@
   function layerBox(l) {
     if (l.type === "color") return { x: 0, y: 0, w: canvas.width, h: canvas.height };
     if (l.type === "text") {
-      ctx.font = `${l.size}px ${l.fontCss}`;
-      const w = Math.max(ctx.measureText(l.text).width, 10);
-      return { x: l.x, y: l.y, w, h: l.size * 1.25 };
+      ctx.font = `${l.bold ? "700 " : ""}${l.size}px ${l.fontCss}`;
+      const tw = Math.max(ctx.measureText(l.text).width, 10);
+      const th = l.size * 1.25;
+      const ang = (l.rotation || 0) * Math.PI / 180;
+      if (!ang) return { x: l.x, y: l.y, w: tw, h: th };
+      const cx = l.x + tw / 2, cy = l.y + th / 2;
+      const ca = Math.abs(Math.cos(ang)), sa = Math.abs(Math.sin(ang));
+      const w = tw * ca + th * sa, h = tw * sa + th * ca;
+      return { x: cx - w / 2, y: cy - h / 2, w, h };
     }
     return { x: l.x, y: l.y, w: l.w, h: l.h };
   }
@@ -181,7 +208,7 @@
   }
 
   // ---------- 渲染 ----------
-  // 把图片按比例贴合进目标框（contain，不变形）
+  // 把图片按比例贴合进目标框（contain，不变形），返回实际绘制矩形
   function drawImageContain(im, x, y, w, h) {
     const iw = im.naturalWidth || w, ih = im.naturalHeight || h;
     const ar = iw / ih, fr = w / h;
@@ -189,6 +216,7 @@
     if (ar > fr) { dw = w; dh = w / ar; } else { dh = h; dw = h * ar; }
     const dx = x + (w - dw) / 2, dy = y + (h - dh) / 2;
     ctx.drawImage(im, dx, dy, dw, dh);
+    return { x: dx, y: dy, w: dw, h: dh };
   }
   function handleSizeCanvas() {
     const rect = canvas.getBoundingClientRect();
@@ -206,18 +234,48 @@
         ctx.fillStyle = l.color;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
       } else if (l.type === "image") {
+        // 兜底：还没加载过、也没失败过的图，补一次加载（加载完会自己 render）
+        if (l.src && !imgCache[l.src] && !imgFailed.has(l.src)) getImage(l.src);
         const im = imgCache[l.src];
+        const loaded = im && im.complete && im.naturalWidth;
+        const failed = imgFailed.has(l.src);
         ctx.globalAlpha = l.opacity != null ? l.opacity : 1;
-        if (im && im.complete && im.naturalWidth) {
+        if (loaded) {
+          ctx.save();
+          if (!l.isRef) { // 普通图片加投影，让比例/边界在白底上一眼可见
+            ctx.shadowColor = "rgba(16,18,29,0.22)";
+            ctx.shadowBlur = Math.max(8, canvas.width / 110);
+            ctx.shadowOffsetY = Math.max(3, canvas.width / 320);
+          }
           // 排版参考铺满（作构图模板）；其余图片按比例贴合，不变形
-          if (l.layoutFill) ctx.drawImage(im, l.x, l.y, l.w, l.h);
-          else drawImageContain(im, l.x, l.y, l.w, l.h);
+          let box;
+          if (l.layoutFill) {
+            box = { x: l.x, y: l.y, w: l.w, h: l.h };
+            ctx.drawImage(im, box.x, box.y, box.w, box.h);
+          } else {
+            box = drawImageContain(im, l.x, l.y, l.w, l.h);
+          }
+          ctx.restore();
+          // 非参考且未选中：加细边框，突出比例（选中时由全局选中框接管）
+          if (!l.isRef && state.selectedId !== l.id) {
+            ctx.save();
+            ctx.strokeStyle = "rgba(16,18,29,0.18)";
+            ctx.lineWidth = Math.max(1, canvas.width / 700);
+            ctx.strokeRect(box.x, box.y, box.w, box.h);
+            ctx.restore();
+          }
         } else {
-          ctx.fillStyle = "#e6e8ef";
+          // 占位 / 加载失败：始终给出清晰边框与提示
+          ctx.save();
+          ctx.fillStyle = failed ? "#fdecec" : "#eef0f6";
           ctx.fillRect(l.x, l.y, l.w, l.h);
-          ctx.fillStyle = "#9aa1b1";
-          ctx.font = "20px sans-serif";
-          ctx.fillText("图", l.x + l.w / 2 - 8, l.y + l.h / 2);
+          ctx.strokeStyle = failed ? "#e5484d" : "#c9cedb";
+          ctx.lineWidth = 1.5;
+          ctx.strokeRect(l.x + 0.5, l.y + 0.5, l.w - 1, l.h - 1);
+          ctx.fillStyle = failed ? "#e5484d" : "#9aa1b1";
+          ctx.font = "600 15px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+          ctx.fillText(failed ? "图缺失" : "图", l.x + l.w / 2, l.y + l.h / 2);
+          ctx.restore();
         }
         ctx.globalAlpha = 1;
         // 参考层（风格/排版/角色参考）加虚线框 + 标签
@@ -241,11 +299,52 @@
           ctx.restore();
         }
       } else if (l.type === "text") {
-        ctx.globalAlpha = 1;
-        ctx.font = `${l.size}px ${l.fontCss}`;
-        ctx.fillStyle = l.color;
+        ctx.save();
+        ctx.globalAlpha = l.opacity != null ? l.opacity : 1;
+        const weight = l.bold ? "700" : "400";
+        ctx.font = `${weight} ${l.size}px ${l.fontCss}`;
         ctx.textBaseline = "top";
-        ctx.fillText(l.text, l.x, l.y);
+        ctx.textAlign = "left";
+
+        const ang = (l.rotation || 0) * Math.PI / 180;
+        const tw = Math.max(ctx.measureText(l.text).width, 8);
+        const th = l.size;
+
+        // 建坐标系：旋转以文字中心为轴，原点落到文字左上角，后续统一在 (0,0) 绘制
+        ctx.save();
+        if (ang) {
+          ctx.translate(l.x + tw / 2, l.y + th / 2);
+          ctx.rotate(ang);
+          ctx.translate(-tw / 2, -th / 2);
+        } else {
+          ctx.translate(l.x, l.y);
+        }
+
+        // ① 发光：用阴影做外发光（颜色独立）
+        if (l.glowBlur > 0) {
+          ctx.save();
+          ctx.shadowColor = l.glowColor || "#5b5bd6";
+          ctx.shadowBlur = l.glowBlur;
+          ctx.fillStyle = l.glowColor || "#5b5bd6";
+          ctx.fillText(l.text, 0, 0);
+          ctx.restore();
+        }
+        // ② 描边：先画粗描边，再用字色覆盖内侧，形成外描边（颜色独立）
+        if (l.strokeWidth > 0) {
+          ctx.save();
+          ctx.lineJoin = "round";
+          ctx.miterLimit = 2;
+          ctx.lineWidth = l.strokeWidth * 2;
+          ctx.strokeStyle = l.strokeColor || "#ffffff";
+          ctx.strokeText(l.text, 0, 0);
+          ctx.restore();
+        }
+        // ③ 正文字色
+        ctx.fillStyle = l.color || "#1a1a1a";
+        ctx.fillText(l.text, 0, 0);
+
+        ctx.restore(); // 坐标系
+        ctx.restore(); // globalAlpha
       }
     }
     // 选中框 + 四角缩放手柄
@@ -282,7 +381,7 @@
   }
 
   // ---------- 拖拽：卡片 -> 画布 ----------
-  function addFromCard(tab, id, point) {
+  function addFromCard(tab, id, point, role) {
     const cx = point && point.inside ? point.x : canvas.width / 2;
     const cy = point && point.inside ? point.y : canvas.height / 2;
     const refSide = Math.round(canvas.width * 0.24); // 参考卡统一尺寸（风格/角色一致）
@@ -311,8 +410,11 @@
       const f = FONTS.find((x) => x.name === id) || (state.customFonts || []).find((x) => x.name === id);
       if (!f) return;
       state.current.font = f;
-      addLayer({ type: "text", text: "双击编辑文字", fontCss: f.css, color: "#1a1a1a", size: Math.round(canvas.width * 0.07), x: canvas.width * 0.1, y: canvas.height * 0.4, name: "文字 · " + f.name });
-      toast("已加入文字层（" + f.name + "），双击改字");
+      const rk = ROLE_MAP[role] ? role : "正文";
+      const r = ROLE_MAP[rk];
+      const size = sizeForRole(rk);
+      addLayer({ type: "text", text: r.ph, fontCss: f.css, color: "#1a1a1a", size, role: rk, fontName: f.name, opacity: 1, rotation: 0, bold: false, strokeWidth: 0, strokeColor: "#ffffff", glowBlur: 0, glowColor: "#5b5bd6", x: canvas.width * 0.1, y: canvas.height * 0.4, name: textName({ fontName: f.name, role: rk }) });
+      toast("已加入文字层（" + f.name + " · " + rk + "），双击改字");
     } else if (tab === "character") {
       const ch = state.characters.find((x) => x.id === id);
       if (!ch) return;
@@ -356,10 +458,17 @@
         <div class="sample" style='font-family:${item.css}'>永和九年</div>
         <div class="fname">${item.name}</div>
         <div class="flic">${item.license}</div>
-        <div class="drag-hint">拖我 → 加文字层</div>
+        ${roleRowHTML()}
       </div>`;
     }
     return "";
+  }
+
+  // 字体卡 / 文字层共用的「字号层级」选择行：主标题 / 副标题 / 正文 / 署名
+  function roleRowHTML() {
+    return `<div class="role-row">` +
+      TEXT_ROLES.map((r) => `<button class="role-chip" draggable="true" data-role="${r.key}" title="加「${r.key}」文字层">${r.key}</button>`).join("") +
+      `</div>`;
   }
 
   let gridLimit = 60;       // 风格/排版列表分批加载：每次渲染上限
@@ -412,12 +521,27 @@
     tabBody.querySelectorAll(".card").forEach((el) => {
       const t = el.dataset.tab, id = el.dataset.id;
       el.addEventListener("dragstart", (e) => {
+        // 从字号层级按钮拖出时，由按钮自己处理，避免重复
+        if (e.target.closest && e.target.closest(".role-chip")) return;
         const payload = JSON.stringify({ tab: t, id });
         e.dataTransfer.effectAllowed = "copy";
         e.dataTransfer.setData("application/json", payload);
         e.dataTransfer.setData("text/plain", payload); // 兜底
       });
       el.addEventListener("click", () => addFromCard(t, id, null));
+    });
+    // 字体卡的「字号层级」按钮：点按 / 拖拽 直接加对应层级的文字
+    tabBody.querySelectorAll(".font-card .role-chip").forEach((chip) => {
+      const card = chip.closest(".font-card");
+      const t = card.dataset.tab, id = card.dataset.id, role = chip.dataset.role;
+      chip.addEventListener("click", (e) => { e.stopPropagation(); addFromCard(t, id, null, role); });
+      chip.addEventListener("dragstart", (e) => {
+        e.stopPropagation();
+        const payload = JSON.stringify({ tab: t, id, role });
+        e.dataTransfer.effectAllowed = "copy";
+        e.dataTransfer.setData("application/json", payload);
+        e.dataTransfer.setData("text/plain", payload);
+      });
     });
     // 分类筛选
     tabBody.querySelectorAll(".cat").forEach((el) => {
@@ -444,7 +568,7 @@
         <div class="fname">${f.name}</div>
         <div class="flic">${f.license || "自定义"}</div>
         <button class="cust-del" data-fname="${f.name}" title="删除该字体">×</button>
-        <div class="drag-hint">拖我 → 加文字层</div>
+        ${roleRowHTML()}
       </div>`).join("");
     tabBody.innerHTML = `<div class="tab-tools"><button class="mini-btn" id="btnUpFont">＋ 上传字体（自定义）</button></div>` +
       `<div class="grid">${cards}${customHtml}</div>` +
@@ -571,8 +695,8 @@
     const hit = hitTest(p.x, p.y);
     if (hit) {
       state.selectedId = hit.id;
-      const b = layerBox(hit);
-      drag = { mode: "move", id: hit.id, ox: p.x - b.x, oy: p.y - b.y };
+      // 用图层自身坐标算偏移（旋转文字也不会跳动）
+      drag = { mode: "move", id: hit.id, ox: p.x - (hit.x || 0), oy: p.y - (hit.y || 0) };
       canvas.setPointerCapture(e.pointerId);
       refreshLayers();
     } else {
@@ -599,19 +723,20 @@
         const ratio = Math.sqrt(nw * nw + nh * nh) / Math.sqrt(drag.ow * drag.ow + drag.oh * drag.oh);
         l.size = Math.max(8, Math.round(drag.baseSize * ratio));
         l.x = nx; l.y = ny;
+        l.role = null; l.name = textName(l); // 自由缩放后脱离预设层级
       } else {
         l.x = nx; l.y = ny; l.w = nw; l.h = nh;
       }
     }
     render();
   });
-  canvas.addEventListener("pointerup", (e) => { drag = null; });
+  canvas.addEventListener("pointerup", (e) => { drag = null; render(); refreshLayers(); });
   canvas.addEventListener("wheel", (e) => {
     const l = getLayer(state.selectedId);
     if (!l || l.type === "color") return;
     e.preventDefault();
     const f = e.deltaY < 0 ? 1.06 : 0.94;
-    if (l.type === "text") l.size = Math.max(8, Math.round(l.size * f));
+    if (l.type === "text") { l.size = Math.max(8, Math.round(l.size * f)); l.role = null; l.name = textName(l); }
     else { l.w *= f; l.h *= f; l.userResized = true; }
     render();
   }, { passive: false });
@@ -639,7 +764,7 @@
     if (!raw) return;
     let d; try { d = JSON.parse(raw); } catch { return; }
     const p = toCanvas(e.clientX, e.clientY);
-    addFromCard(d.tab, d.id, p);
+    addFromCard(d.tab, d.id, p, d.role);
   });
 
   // ---------- 提示词组装 ----------
@@ -651,7 +776,10 @@
     if (c.style) parts.push("【风格】" + c.style.prompt);
     if (c.layout) parts.push("【排版】" + c.layout.prompt);
     if (c.color) parts.push("【配色】" + c.color.prompt);
-    if (c.font && p.includeFont) parts.push("【字体】文字使用「" + c.font.name + "」真实字体清晰渲染，避免中文乱码");
+    if (c.font && p.includeFont) {
+      const roles = Array.from(new Set(state.layers.filter((l) => l.type === "text" && l.role).map((l) => l.role)));
+      parts.push("【字体】文字使用「" + c.font.name + "」真实字体清晰渲染（字号层级：" + (roles.length ? roles.join("/") : "正文") + "），避免中文乱码");
+    }
     if (c.character && p.includeChar) parts.push("【角色一致性】保持与参考图同一人物（脸型/发式/五官特征一致），固定身份描述，会话内锁定种子");
     const subj = $("#inpSubject").value.trim();
     const cont = $("#inpContent").value.trim();
@@ -687,16 +815,19 @@
   }
 
   function refreshLayers() {
-    if (state.layers.length === 0) { layerListEl.innerHTML = `<div class="layer-empty">画布为空</div>`; return; }
+    if (state.layers.length === 0) { layerListEl.innerHTML = `<div class="layer-empty">画布为空</div>`; updateSizeTip(); updateTextProps(); return; }
     layerListEl.innerHTML = state.layers.map((l, i) => {
       const ic = l.type === "text" ? "🅣" : l.type === "color" ? "🎨" : "🖼";
       const sel = l.id === state.selectedId ? " sel" : "";
+      const roleRow = l.type === "text"
+        ? `<div class="txt-roles">` + TEXT_ROLES.map((r) => `<button class="rt-role ${l.role === r.key ? "on" : ""}" data-role="${r.key}" title="设为「${r.key}」">${r.key}</button>`).join("") + `</div>`
+        : "";
       return `<div class="layer-item${sel}" data-id="${l.id}">
         <span class="ic">${ic}</span><span class="nm">${l.name || l.type}</span>
         <span class="acts">
           <button data-act="front" title="置顶">⬆</button>
           <button data-act="del" title="删除">🗑</button>
-        </span></div>`;
+        </span>${roleRow}</div>`;
     }).join("");
     layerListEl.querySelectorAll(".layer-item").forEach((el) => {
       const id = el.dataset.id;
@@ -704,6 +835,66 @@
       el.querySelector('[data-act="front"]').onclick = (e) => { e.stopPropagation(); bringToFront(id); };
       el.querySelector('[data-act="del"]').onclick = (e) => { e.stopPropagation(); removeLayer(id); };
     });
+    layerListEl.querySelectorAll(".rt-role").forEach((b) => {
+      b.onclick = (e) => { e.stopPropagation(); setTextRole(b.closest(".layer-item").dataset.id, b.dataset.role); };
+    });
+    updateSizeTip();
+    updateTextProps();
+  }
+
+  // 切换文字层的字号层级（保留文字内容，仅改字号与命名）
+  function setTextRole(id, role) {
+    const l = getLayer(id);
+    if (!l || l.type !== "text") return;
+    l.role = role;
+    l.size = sizeForRole(role);
+    l.name = textName(l);
+    render(); refreshLayers();
+  }
+
+  // 字数层级约束提示：一幅图建议只用 3–4 种字号（主/副/正/署 + 自定义）
+  function updateSizeTip() {
+    const tip = $("#sizeTip");
+    if (!tip) return;
+    const texts = state.layers.filter((l) => l.type === "text");
+    const buckets = new Set();
+    texts.forEach((t) => { if (t.role) buckets.add(t.role); else buckets.add("c" + Math.round(t.size / 4)); });
+    const n = buckets.size;
+    if (n === 0) { tip.hidden = true; tip.classList.remove("warn"); return; }
+    tip.hidden = false;
+    if (n > 4) {
+      tip.classList.add("warn");
+      tip.textContent = "⚠ 本图已用 " + n + " 种字号，建议不超过 4 种（主/副/正/署），保持版面统一。";
+    } else {
+      tip.classList.remove("warn");
+      tip.textContent = "本图文字字号层级：" + n + " 种（主/副/正/署，建议 ≤4 种）";
+    }
+  }
+
+  // 右侧「文字属性」面板：随选中图层联动显示
+  function updateTextProps() {
+    const el = $("#textProps");
+    if (!el) return;
+    const l = getLayer(state.selectedId);
+    if (!l || l.type !== "text") { el.hidden = true; return; }
+    el.hidden = false;
+    $("#tpColor").value = l.color || "#1a1a1a";
+    $("#tpSize").value = l.size;
+    $("#tpSizeVal").textContent = l.size + "px";
+    $("#tpAngle").value = Math.round(l.rotation || 0);
+    $("#tpAngleVal").textContent = Math.round(l.rotation || 0) + "°";
+    const sw = l.strokeWidth || 0;
+    $("#tpStroke").value = sw;
+    $("#tpStrokeVal").textContent = sw + "px";
+    $("#tpStrokeColor").value = l.strokeColor || "#ffffff";
+    const gb = l.glowBlur || 0;
+    $("#tpGlow").value = gb;
+    $("#tpGlowVal").textContent = gb;
+    $("#tpGlowColor").value = l.glowColor || "#5b5bd6";
+    $("#tpBold").checked = !!l.bold;
+    const op = l.opacity != null ? l.opacity : 1;
+    $("#tpOpacity").value = op;
+    $("#tpOpVal").textContent = Math.round(op * 100) + "%";
   }
 
   // ---------- 出图 ----------
@@ -788,7 +979,7 @@
       subject: $("#inpSubject").value.trim(),
       content: $("#inpContent").value.trim(),
       prompt: promptOut.value,
-      layers: state.layers.map((l) => ({ type: l.type, name: l.name })),
+      layers: state.layers.map((l) => ({ type: l.type, name: l.name, ...(l.type === "text" ? { role: l.role || "自定义", size: l.size } : {}) })),
     };
   }
   function exportJson() {
@@ -807,7 +998,7 @@
     md += `- 主体：${r.subject || "（无）"}\n`;
     md += `- 内容：${r.content || "（无）"}\n\n`;
     md += `## 完整提示词\n\n${r.prompt}\n\n`;
-    md += `## 图层\n\n` + r.layers.map((l, i) => `${i + 1}. [${l.type}] ${l.name}`).join("\n");
+    md += `## 图层\n\n` + r.layers.map((l, i) => `${i + 1}. [${l.type}] ${l.name}` + (l.role ? `（${l.role}）` : "")).join("\n");
     md += `\n\n> 风格库来源：yang0/handraw-style（MIT，须保留署名）\n`;
     download("recipe.md", "data:text/markdown;charset=utf-8," + encodeURIComponent(md));
     toast("已导出配方 MD");
@@ -964,6 +1155,66 @@
       refreshLayers(); render();
     };
 
+    // 文字属性控件
+    $("#tpColor").addEventListener("input", () => {
+      const l = getLayer(state.selectedId);
+      if (l && l.type === "text") { l.color = $("#tpColor").value; render(); }
+    });
+    $("#tpSize").addEventListener("input", () => {
+      const l = getLayer(state.selectedId);
+      if (l && l.type === "text") {
+        l.size = +$("#tpSize").value; l.role = null; l.name = textName(l);
+        $("#tpSizeVal").textContent = l.size + "px"; render(); refreshLayers();
+      }
+    });
+    $("#tpAngle").addEventListener("input", () => {
+      const l = getLayer(state.selectedId);
+      if (l && l.type === "text") {
+        l.rotation = +$("#tpAngle").value;
+        $("#tpAngleVal").textContent = l.rotation + "°"; render();
+      }
+    });
+    $("#tpBold").addEventListener("change", () => {
+      const l = getLayer(state.selectedId);
+      if (l && l.type === "text") { l.bold = $("#tpBold").checked; render(); }
+    });
+    $("#tpStroke").addEventListener("input", () => {
+      const l = getLayer(state.selectedId);
+      if (l && l.type === "text") { l.strokeWidth = +$("#tpStroke").value; $("#tpStrokeVal").textContent = l.strokeWidth + "px"; render(); }
+    });
+    $("#tpStrokeColor").addEventListener("input", () => {
+      const l = getLayer(state.selectedId);
+      if (l && l.type === "text") { l.strokeColor = $("#tpStrokeColor").value; render(); }
+    });
+    $("#tpGlow").addEventListener("input", () => {
+      const l = getLayer(state.selectedId);
+      if (l && l.type === "text") { l.glowBlur = +$("#tpGlow").value; $("#tpGlowVal").textContent = l.glowBlur; render(); }
+    });
+    $("#tpGlowColor").addEventListener("input", () => {
+      const l = getLayer(state.selectedId);
+      if (l && l.type === "text") { l.glowColor = $("#tpGlowColor").value; render(); }
+    });
+    $("#tpOpacity").addEventListener("input", () => {
+      const l = getLayer(state.selectedId);
+      if (l && l.type === "text") {
+        l.opacity = +$("#tpOpacity").value;
+        $("#tpOpVal").textContent = Math.round(l.opacity * 100) + "%"; render();
+      }
+    });
+
+    // 全屏画布（隐藏两侧面板 + 浏览器全屏）
+    const btnFs = $("#btnFullscreen");
+    btnFs.onclick = () => {
+      const on = document.body.classList.toggle("focus-canvas");
+      if (on) {
+        btnFs.textContent = "⊟ 退出全屏";
+        try { document.documentElement.requestFullscreen && document.documentElement.requestFullscreen(); } catch (e) {}
+      } else {
+        btnFs.textContent = "⛶ 全屏画布";
+        if (document.fullscreenElement) { try { document.exitFullscreen(); } catch (e) {} }
+      }
+    };
+
     // 设置中心
     $("#btnSettings").onclick = openSettings;
     $("#btnSetClose").onclick = closeSettings;
@@ -984,6 +1235,20 @@
     // 点背景关闭 + ESC 关闭
     $("#settingsMask").addEventListener("click", (e) => { if (e.target.id === "settingsMask") closeSettings(); });
     document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("#settingsMask").hidden) closeSettings(); });
+    // 退出浏览器全屏时同步「全屏画布」按钮状态
+    document.addEventListener("fullscreenchange", () => {
+      if (!document.fullscreenElement && document.body.classList.contains("focus-canvas")) {
+        document.body.classList.remove("focus-canvas");
+        $("#btnFullscreen").textContent = "⛶ 全屏画布";
+      }
+    });
+    // Esc 退出聚焦模式（设置弹窗打开时不处理）
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && document.body.classList.contains("focus-canvas") && !document.fullscreenElement && $("#settingsMask").hidden) {
+        document.body.classList.remove("focus-canvas");
+        $("#btnFullscreen").textContent = "⛶ 全屏画布";
+      }
+    });
     loadSettings();
     registerCustomFonts();
 

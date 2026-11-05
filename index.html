@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@400;600&family=ZCOOL+KuaiLe&family=ZCOOL+XiaoWei&family=ZCOOL+QingKe+HuangYou&family=Ma+Shan+Zheng&family=Liu+Jian+Mao+Cao&family=Long+Cang&family=Zhi+Mang+Xing&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css?v=20261105c" />
 </head>
 <body>
   <!-- 顶栏 -->
@@ -37,10 +37,10 @@
       <div class="tabs" id="tabs">
         <button class="tab active" data-tab="style">风格</button>
         <button class="tab" data-tab="layout">排版</button>
-        <button class="tab" data-tab="font">字体</button>
         <button class="tab" data-tab="color">配色</button>
         <button class="tab" data-tab="character">角色</button>
         <button class="tab" data-tab="mine">我的图片</button>
+        <button class="tab" data-tab="font">字体</button>
       </div>
       <div class="tab-body" id="tabBody">
         <!-- 由 JS 渲染 -->
@@ -58,7 +58,7 @@
         <div class="empty-state" id="emptyState">
           <div class="empty-icon">👆</div>
           <div class="empty-title">把左侧素材拖到这里开始创作</div>
-          <div class="empty-hint">风格 / 排版 / 配色 / 字体 / 角色 / 图片 —— 拖进来立刻看得见</div>
+          <div class="empty-hint">风格 / 排版 / 配色 / 角色 / 图片 / 字体 —— 拖进来立刻看得见</div>
         </div>
         <div class="drop-hint" id="dropHint">松手放入画布</div>
       </div>
@@ -67,6 +67,7 @@
         <button class="btn" id="btnExportPng">导出 PNG</button>
         <button class="btn" id="btnExportJson">配方 JSON</button>
         <button class="btn" id="btnExportMd">配方 MD</button>
+        <button class="btn" id="btnFullscreen" title="隐藏两侧面板，画布全屏（Esc 退出）">⛶ 全屏画布</button>
         <button class="btn danger ghost" id="btnClear">清空画布</button>
       </div>
     </section>
@@ -94,12 +95,47 @@
         <div class="rp-tip" id="charNote" hidden>⚠ 角色一致性约 80–85%，依赖所选模型，极端角度可能漂移。</div>
       </div>
 
-      <div class="rp-section grow">
+      <div class="rp-section">
         <h3>④ 图层</h3>
         <div id="layerList" class="layer-list">
           <div class="layer-empty">画布为空</div>
         </div>
+        <div class="rp-tip" id="sizeTip" hidden></div>
         <div class="layer-tip">选中图层后：拖动四角手柄缩放 · 拖动移动 · 滚轮缩放 · 双击文字改字 · Del 删除</div>
+      </div>
+
+      <div class="rp-section" id="textProps" hidden>
+        <h3>⑤ 文字属性</h3>
+
+        <div class="tp-row">
+          <span class="lbl">字色</span>
+          <input type="color" id="tpColor" class="inp color-inp" value="#1a1a1a" />
+        </div>
+        <label class="lbl">字号（px）<span class="val" id="tpSizeVal"></span></label>
+        <input type="range" id="tpSize" class="inp" min="8" max="800" step="1" value="60" />
+        <label class="lbl">角度（°）<span class="val" id="tpAngleVal"></span></label>
+        <input type="range" id="tpAngle" class="inp" min="-180" max="180" step="1" value="0" />
+
+        <div class="tp-sep">描边</div>
+        <label class="lbl">粗细 <span class="val" id="tpStrokeVal"></span></label>
+        <input type="range" id="tpStroke" class="inp" min="0" max="40" step="1" value="0" />
+        <div class="tp-row">
+          <span class="lbl">描边色</span>
+          <input type="color" id="tpStrokeColor" class="inp color-inp" value="#ffffff" />
+        </div>
+
+        <div class="tp-sep">发光</div>
+        <label class="lbl">强度 <span class="val" id="tpGlowVal"></span></label>
+        <input type="range" id="tpGlow" class="inp" min="0" max="80" step="1" value="0" />
+        <div class="tp-row">
+          <span class="lbl">发光色</span>
+          <input type="color" id="tpGlowColor" class="inp color-inp" value="#5b5bd6" />
+        </div>
+
+        <label class="lbl" style="margin-top:12px"><input type="checkbox" id="tpBold" /> 加粗</label>
+        <label class="lbl">不透明度 <span class="val" id="tpOpVal"></span></label>
+        <input type="range" id="tpOpacity" class="inp" min="0.1" max="1" step="0.05" value="1" />
+        <div class="rp-tip">每个文字层都能单独设字色 / 描边色 / 发光色；改字号会标「自定义」。</div>
       </div>
     </aside>
   </main>
@@ -195,7 +231,7 @@
 
   <div id="toast" class="toast" hidden></div>
 
-  <script src="data.js"></script>
-  <script src="app.js"></script>
+  <script src="data.js?v=20261105c"></script>
+  <script src="app.js?v=20261105c"></script>
 </body>
 </html>
