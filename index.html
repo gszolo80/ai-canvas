@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI 画布生图 · 素材中心</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@400;600&family=ZCOOL+KuaiLe&family=ZCOOL+XiaoWei&family=ZCOOL+QingKe+HuangYou&family=Ma+Shan+Zheng&family=Liu+Jian+Mao+Cao&family=Long+Cang&family=Zhi+Mang+Xing&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- 顶栏 -->
+  <header class="topbar glass">
+    <div class="brand">
+      <span class="logo">🎨</span>
+      <span class="title">AI 画布生图</span>
+      <span class="sub">素材中心 · 拖到画布就能用</span>
+    </div>
+      <div class="top-actions">
+        <label class="ratio-pick">
+          画布尺寸
+          <select id="ratioSelect"></select>
+        </label>
+        <span class="custom-size" id="customSize" hidden>
+          <input id="customW" class="num" type="number" min="64" max="4096" value="1024" title="宽" /> ×
+          <input id="customH" class="num" type="number" min="64" max="4096" value="1366" title="高" /> px
+        </span>
+        <button id="btnSettings" class="btn ghost" title="出图后端 / 上传 / 提示词 / 自定义风格">⚙ 设置</button>
+        <span class="attr" title="handraw-style 为 MIT 授权，须保留署名">风格库来源：yang0/handraw-style</span>
+      </div>
+  </header>
+
+  <main class="layout">
+    <!-- 左：素材中心 -->
+    <aside class="panel-left glass">
+      <div class="tabs" id="tabs">
+        <button class="tab active" data-tab="style">风格</button>
+        <button class="tab" data-tab="layout">排版</button>
+        <button class="tab" data-tab="font">字体</button>
+        <button class="tab" data-tab="color">配色</button>
+        <button class="tab" data-tab="character">角色</button>
+        <button class="tab" data-tab="mine">我的图片</button>
+      </div>
+      <div class="tab-body" id="tabBody">
+        <!-- 由 JS 渲染 -->
+      </div>
+      <div class="left-foot">
+        <input type="file" id="uploadInput" accept="image/*" multiple hidden />
+        <button class="btn block" id="btnUpload">＋ 上传图片 / 角色图</button>
+      </div>
+    </aside>
+
+    <!-- 中：画布 -->
+    <section class="stage">
+      <div class="canvas-wrap glass" id="canvasWrap">
+        <canvas id="canvas"></canvas>
+        <div class="empty-state" id="emptyState">
+          <div class="empty-icon">👆</div>
+          <div class="empty-title">把左侧素材拖到这里开始创作</div>
+          <div class="empty-hint">风格 / 排版 / 配色 / 字体 / 角色 / 图片 —— 拖进来立刻看得见</div>
+        </div>
+        <div class="drop-hint" id="dropHint">松手放入画布</div>
+      </div>
+      <div class="stage-foot">
+        <button class="btn primary" id="btnGenerate">⚡ 生成底图</button>
+        <button class="btn" id="btnExportPng">导出 PNG</button>
+        <button class="btn" id="btnExportJson">配方 JSON</button>
+        <button class="btn" id="btnExportMd">配方 MD</button>
+        <button class="btn danger ghost" id="btnClear">清空画布</button>
+      </div>
+    </section>
+
+    <!-- 右：创作面板 -->
+    <aside class="panel-right glass">
+      <div class="rp-section">
+        <h3>① 写内容</h3>
+        <label class="lbl">物（画什么主体）</label>
+        <input id="inpSubject" class="inp" placeholder="例如：一只橘猫、都市女孩、咖啡杯" />
+        <label class="lbl">内容（文字 / 场景描述）</label>
+        <textarea id="inpContent" class="inp area" placeholder="例如：周末午后、阳光、慵懒氛围；或一句标语『今天也要开心』"></textarea>
+      </div>
+
+      <div class="rp-section">
+        <h3>② 当前选择</h3>
+        <div id="chips" class="chips">
+          <span class="chip empty">尚未选择任何素材</span>
+        </div>
+      </div>
+
+      <div class="rp-section">
+        <h3>③ 组装提示词（可编辑）</h3>
+        <textarea id="promptOut" class="inp area prompt" readonly></textarea>
+        <div class="rp-tip" id="charNote" hidden>⚠ 角色一致性约 80–85%，依赖所选模型，极端角度可能漂移。</div>
+      </div>
+
+      <div class="rp-section grow">
+        <h3>④ 图层</h3>
+        <div id="layerList" class="layer-list">
+          <div class="layer-empty">画布为空</div>
+        </div>
+        <div class="layer-tip">选中图层后：拖动移动 · 滚轮缩放 · 双击文字改字 · Del 删除</div>
+      </div>
+    </aside>
+  </main>
+
+  <!-- 设置中心 -->
+  <div class="modal-mask" id="settingsMask" hidden>
+    <div class="modal glass settings-modal">
+      <div class="settings-head">
+        <h3>⚙ 设置中心</h3>
+        <button class="modal-x" id="btnSetClose" title="关闭">×</button>
+      </div>
+      <div class="settings-body">
+        <div class="settings-tabs" id="setTabs">
+          <button class="stab active" data-stab="backend">出图后端</button>
+          <button class="stab" data-stab="upload">图片上传</button>
+          <button class="stab" data-stab="prompt">提示词</button>
+          <button class="stab" data-stab="custom">自定义风格</button>
+        </div>
+        <div class="settings-panes">
+          <!-- 出图后端 -->
+          <section class="spane" data-pane="backend">
+            <label class="lbl">模式</label>
+            <select id="setMode" class="inp">
+              <option value="demo">演示模式（无需 Key，返回占位底图，走通全流程）</option>
+              <option value="openai">OpenAI 兼容接口（豆包 / 火山引擎 Ark / WorkBuddy）</option>
+            </select>
+            <div id="openaiFields" hidden>
+              <label class="lbl">Base URL</label>
+              <input id="setBase" class="inp" placeholder="https://ark.cn-beijing.volces.com/api/v3" />
+              <label class="lbl">API Key</label>
+              <input id="setKey" class="inp" type="password" placeholder="你的密钥（仅存本地浏览器）" />
+              <label class="lbl">模型名</label>
+              <input id="setModel" class="inp" placeholder="如 doubao-seedream-3.0" />
+              <div class="rp-tip">填好后点「生成底图」即出真实图片。密钥只存本机，不上传。</div>
+            </div>
+          </section>
+          <!-- 图片上传 -->
+          <section class="spane" data-pane="upload" hidden>
+            <label class="lbl">压缩后最大边长（像素）</label>
+            <select id="setMaxEdge" class="inp">
+              <option value="0">不限制（原图）</option>
+              <option value="1024">1024</option>
+              <option value="1536">1536</option>
+              <option value="2048">2048</option>
+            </select>
+            <label class="lbl">输出格式</label>
+            <select id="setFmt" class="inp">
+              <option value="keep">保持原格式（PNG）</option>
+              <option value="jpeg">强制 JPEG（更小）</option>
+              <option value="webp">强制 WebP（最小）</option>
+            </select>
+            <label class="lbl">压缩质量（JPEG/WebP 生效）：<span id="setQVal">0.85</span></label>
+            <input id="setQuality" class="inp" type="range" min="0.5" max="0.95" step="0.05" value="0.85" />
+            <div class="rp-tip">上传角色图 / 我的图片时按此自动压缩，避免大图拖慢画布与导出。</div>
+          </section>
+          <!-- 提示词 -->
+          <section class="spane" data-pane="prompt" hidden>
+            <label class="lbl">提示词语言导向</label>
+            <select id="setLang" class="inp">
+              <option value="cn">中文（原生，含英文术语）</option>
+              <option value="en">英文（附加英文指令，主体建议自译）</option>
+              <option value="mix">中英混合（中文主体 + 英文质量指令）</option>
+            </select>
+            <label class="lbl"><input type="checkbox" id="setIncFont" /> 包含「真实字体」说明</label>
+            <label class="lbl"><input type="checkbox" id="setIncChar" /> 包含「角色一致性」说明</label>
+            <label class="lbl">风格锚点前缀（粘到每条提示词开头，防漂移）</label>
+            <textarea id="setAnchor" class="inp area" placeholder="例如：hand-drawn illustration style, consistent line art, "></textarea>
+            <label class="lbl">通用后缀 / 额外要求（粘到结尾）</label>
+            <textarea id="setSuffix" class="inp area" placeholder="例如：no watermark, high detail, 4k"></textarea>
+          </section>
+          <!-- 自定义风格 -->
+          <section class="spane" data-pane="custom" hidden>
+            <div class="rp-tip" style="margin-top:0">当前内置为手绘风（handraw）。可在此添加任意风格（如 3D、像素、油画…），添加后自动出现在左侧「风格」里，可拖入画布。</div>
+            <label class="lbl">风格名称</label>
+            <input id="csName" class="inp" placeholder="例如：赛博朋克 3D" />
+            <label class="lbl">风格提示词（核心描述，可含英文）</label>
+            <textarea id="csPrompt" class="inp area" placeholder="例如：cyberpunk 3d render, neon lighting, cinematic"></textarea>
+            <label class="lbl">代表图（可选，作缩略图与参考图）</label>
+            <input id="csImg" type="file" accept="image/*" class="inp" />
+            <button class="btn primary block" id="btnAddStyle" style="margin-top:8px">＋ 添加风格</button>
+            <div class="rp-tip" style="margin-top:10px">已添加：</div>
+            <div id="csList" class="cs-list"></div>
+          </section>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" id="btnSetCancel">取消</button>
+        <button class="btn primary" id="btnSetSave">保存</button>
+      </div>
+      <div class="modal-note">设置保存在本机浏览器 localStorage，不会上传。</div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
