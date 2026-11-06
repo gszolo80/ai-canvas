@@ -17,7 +17,7 @@ const fs = require('fs');
 const path = require('path');
 const puppeteer = require('puppeteer-core');
 
-const BASE = (process.env.BASE_URL || 'http://127.0.0.1:8123').replace(/\/$/, '') + '/index.html';
+const BASE = (process.env.BASE_URL || 'http://127.0.0.1:8123').replace(/\/$/, '') + '/index.html?view=editor';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 let failed = 0;

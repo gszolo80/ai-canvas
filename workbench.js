@@ -20,6 +20,8 @@
   const LS_INDEX = "aicanvas_wb_index";
   const LS_ACTIVE = "aicanvas_wb_active";
   const LS_PREFIX = "aicanvas_wb_";
+  const LS_VIEW = "aicanvas_last_view";     // 记住上次停留的视图（workbench / editor）
+  const LS_DEMO = "aicanvas_demo_seeded";   // 首次自动摆示例流程，只做一次
   const BIG = 30000;
   const AUTOSAVE_MS = 900;
   const CAPTURE_MS = 10000;
@@ -812,6 +814,7 @@
   // ---------------- 模式：工作台 / 画板编辑 ----------------
   function setMode(on) {
     modeOn = !!on;
+    try { localStorage.setItem(LS_VIEW, modeOn ? "workbench" : "editor"); } catch (e) {}
     document.body.classList.toggle("wb-active", modeOn);
     workbenchEl.hidden = !modeOn;
     $("#canvasWrap").hidden = modeOn;
@@ -1221,8 +1224,34 @@
     setMinimap(true);
     $("#wbPan").classList.toggle("on", panMode);
     $("#wbSnap").classList.toggle("on", snapOn);
+    // 打开就停在节点工作台；?view=editor 可强制回成图编辑器（回归测试用）
+    const qs = location.search || "";
+    const forceEditor = /[?&]view=editor(?:&|$)/.test(qs);
+    const forceWB = /[?&]view=workbench(?:&|$)/.test(qs);
+    let lastView = null; try { lastView = localStorage.getItem(LS_VIEW); } catch (e) {}
+    const startWB = forceEditor ? false : forceWB ? true : (lastView ? lastView === "workbench" : true);
+
+    // 首次进入工作台且还没有流程节点 → 自动摆一份示例，避免打开一片空白
+    let seeded = false;
+    if (startWB) {
+      let done = false; try { done = !!localStorage.getItem(LS_DEMO); } catch (e) {}
+      if (!done) {
+        const hasFlow = W.nodes.some((n) => n.type !== "board" && n.type !== "note");
+        if (!hasFlow) {
+          const right = W.nodes.length ? Math.max(...W.nodes.map((n) => n.x + n.w)) : 0;
+          const top = W.nodes.length ? Math.min(...W.nodes.map((n) => n.y)) : 80;
+          const demo = demoNodes(Math.round(right + 80), Math.round(top));
+          W.nodes.push(...demo.ns); W.connections.push(...demo.cs);
+          seeded = true;
+        }
+        try { localStorage.setItem(LS_DEMO, "1"); } catch (e) {}
+      }
+    }
+
     refreshList(); renderNodes(); applyCam();
-    setMode(false);
+    setMode(startWB);
+    if (startWB && W.nodes.length > 1) setTimeout(() => { fitView(); save(true); }, 80);
+    if (seeded) setTimeout(() => toast("已自动摆好示例流程 · 不想要可右键删除，也可自己拖节点连线"), 600);
     updateDirty();
     await save(true);
     setInterval(() => { if (dirty) save(true); }, CAPTURE_MS);

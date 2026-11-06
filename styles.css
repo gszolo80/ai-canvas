@@ -716,6 +716,13 @@ body.wb-active .ratio-pick, body.wb-active .custom-size { display: none; }
 }
 .wb-ctxmenu button:hover { background: var(--surface-2); }
 
+/* 工作台模式：中间列允许收缩，别被 nowrap 工具栏撑出横向滚动、把右侧节点面板挤出屏幕 */
+body.wb-active .layout { grid-template-columns: 296px minmax(0, 1fr) 332px; }
+body.wb-active .stage { min-width: 0; overflow: hidden; }
+body.wb-active .panel-left, body.wb-active .panel-right { min-width: 0; }
+@media (max-width: 1200px) { body.wb-active .layout { grid-template-columns: 260px minmax(0, 1fr) 300px; } }
+@media (max-width: 980px) { body.wb-active .layout { grid-template-columns: 220px minmax(0, 1fr) 260px; } }
+
 /* 右侧节点面板：仅工作台模式显示，编辑模式仍是原来的创作面板 */
 .wb-node-panel { display: none; flex-direction: column; height: 100%; min-height: 0; }
 body.wb-active .panel-right > .rp-section { display: none !important; }

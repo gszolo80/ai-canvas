@@ -35,7 +35,7 @@ function ok(name, cond, info) { steps++; console.log((cond ? 'PASS' : 'FAIL') + 
   const errors = [];
   page.on('pageerror', e => errors.push('pageerror: ' + e.message));
   page.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
-  await page.goto(BASE + '/index.html', { waitUntil: 'networkidle2' });
+  await page.goto(BASE + '/index.html?view=editor', { waitUntil: 'networkidle2' });
   await sleep(700);
 
   const dump = () => page.evaluate(async () => {
@@ -160,15 +160,25 @@ function ok(name, cond, info) { steps++; console.log((cond ? 'PASS' : 'FAIL') + 
   await page.click('#wbPaste'); await sleep(350);
   ok('10 复制粘贴节点', (await dom()).nodes === nBefore + 1, { before: nBefore, after: (await dom()).nodes });
 
-  // 11 连线跟随节点拖动（拖一个确实有连线的文生图节点，比较全部曲线）
+  // 11 连线跟随节点拖动（先适应视图，避免上一步粘贴后相机把目标节点移出视口）
+  await page.click('#wbFit'); await sleep(350);
   const allWires = () => page.evaluate(() => [...document.querySelectorAll('#wbWires .wb-wire')].map(p => p.getAttribute('d')).join('|'));
   const wireBefore = await allWires();
-  const dragPt = await page.evaluate(() => { const h = document.querySelector('.wb-node.wb-txt2img .wb-node-head').getBoundingClientRect(); return { x: h.left + 60, y: h.top + 15 }; });
+  const dragPt = await page.evaluate(() => {
+    const n = document.querySelector('.wb-node.wb-txt2img');
+    const h = n.querySelector('.wb-node-head').getBoundingClientRect();
+    for (const fx of [0.5, 0.35, 0.65, 0.2, 0.8]) {
+      const x = h.left + h.width * fx, y = h.top + h.height / 2;
+      const el = document.elementFromPoint(x, y);
+      if (el && el.closest('.wb-node.wb-txt2img')) return { x, y, hit: true };
+    }
+    return { x: h.left + 60, y: h.top + 15, hit: false };
+  });
   await page.mouse.move(dragPt.x, dragPt.y); await page.mouse.down();
   await page.mouse.move(dragPt.x + 70, dragPt.y + 45, { steps: 8 }); await page.mouse.up();
   await sleep(350);
   const wireAfter = await allWires();
-  ok('11 节点拖动后连线实时跟随', wireBefore !== wireAfter, { changed: wireBefore !== wireAfter });
+  ok('11 节点拖动后连线实时跟随', wireBefore !== wireAfter, { changed: wireBefore !== wireAfter, hit: dragPt.hit });
 
   // 12 框选（关闭平移模式）
   await page.click('#wbPan');

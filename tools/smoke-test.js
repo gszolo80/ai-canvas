@@ -62,7 +62,7 @@ const samplePixels = (page, label) => page.evaluate((label) => {
 
   const report = { steps: [], errs };
 
-  await page.goto(BASE + '/index.html', { waitUntil: 'networkidle2', timeout: 40000 });
+  await page.goto(BASE + '/index.html?view=editor', { waitUntil: 'networkidle2', timeout: 40000 });
   await new Promise((r) => setTimeout(r, 900));
 
   // ① 风格参考
