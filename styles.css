@@ -124,17 +124,18 @@ body {
 
 /* ---- 左侧：分段导航（主菜单） ---- */
 .tabs {
-  display: flex; flex-wrap: wrap; gap: 4px;
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;
   background: var(--surface-3);
-  padding: 4px; border-radius: var(--r-md);
-  margin-bottom: var(--s-4);
+  padding: 5px; border-radius: var(--r-md);
+  margin-bottom: var(--s-3);
 }
 .tab {
   font-family: inherit; cursor: pointer; border: none; background: transparent;
-  color: var(--ink-2); padding: 7px 11px; border-radius: 7px;
-  font-size: 12.5px; font-weight: 500; transition: all .15s;
-  display: inline-flex; align-items: center; gap: 5px;
+  color: var(--ink-2); padding: 8px 6px; border-radius: 7px;
+  font-size: 12px; font-weight: 500; transition: all .15s;
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px; white-space: nowrap;
 }
+.tab .ti { font-size: 14px; line-height: 1; }
 .tab:hover { color: var(--ink); background: rgba(255,255,255,.6); }
 .tab.active { background: var(--surface); color: var(--accent); box-shadow: var(--sh-sm); font-weight: 600; }
 
@@ -152,7 +153,10 @@ body {
   margin-bottom: 8px; display: flex; align-items: center; gap: 6px;
 }
 .filter-title::before { content: ""; width: 3px; height: 11px; border-radius: 2px; background: var(--accent); }
-.catbar { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
+.catbar { display: flex; flex-wrap: nowrap; gap: 6px; margin: 0; overflow-x: auto; overflow-y: hidden; padding-bottom: 4px; scrollbar-width: thin; }
+.catbar::-webkit-scrollbar { height: 5px; }
+.catbar::-webkit-scrollbar-thumb { background: #cfd4e2; border-radius: 4px; }
+.cat { flex: 0 0 auto; }
 .cat {
   font-family: inherit; cursor: pointer; border: 1px solid var(--border-strong);
   background: var(--surface); color: var(--ink-2);
@@ -189,6 +193,13 @@ body {
   opacity: 0; transform: translateY(4px); transition: opacity .15s, transform .15s;
 }
 .card:hover .grab { opacity: 1; transform: translateY(0); }
+
+/* 列表视图：卡片横向排布（大图 / 列表切换） */
+.grid.list-view { grid-template-columns: 1fr; gap: 8px; }
+.grid.list-view .card:not(.font-card) { display: flex; align-items: stretch; }
+.grid.list-view .card:not(.font-card) .thumb { width: 72px; height: 72px; flex-shrink: 0; aspect-ratio: auto; border-radius: 0; }
+.grid.list-view .card:not(.font-card) .meta { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 8px 10px; }
+.grid.list-view .card .grab { display: none; }
 
 /* 字体卡 */
 .font-card { padding: 14px 10px 12px; text-align: center; }
@@ -824,14 +835,31 @@ body.dark .ref-item { background: var(--surface-2); }
   font-size: 14px; color: var(--ink-3);
 }
 .fav-filter.on { background: var(--accent); color: #fff; border-color: var(--accent); }
-.recent-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-top: 8px; }
-.recent-label { font-size: 10.5px; color: var(--ink-3); margin-right: 2px; }
+/* 最近使用：带标题的小区块 */
+.recent-block { margin-top: 10px; }
+.recent-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.recent-head > span { font-size: 11px; font-weight: 600; color: var(--ink-3); letter-spacing: .4px; }
+.link-btn {
+  font-family: inherit; cursor: pointer; border: none; background: transparent;
+  color: var(--accent); font-size: 11px; padding: 2px 4px; border-radius: 5px;
+}
+.link-btn:hover { background: var(--accent-soft); }
+.recent-bar { display: flex; flex-wrap: nowrap; align-items: center; gap: 5px; overflow-x: auto; overflow-y: hidden; padding-bottom: 4px; scrollbar-width: thin; }
+.recent-bar::-webkit-scrollbar { height: 5px; }
+.recent-bar::-webkit-scrollbar-thumb { background: #cfd4e2; border-radius: 4px; }
 .recent-chip {
-  font-family: inherit; cursor: pointer; font-size: 10.5px; padding: 4px 7px;
+  font-family: inherit; cursor: pointer; font-size: 10.5px; padding: 4px 8px;
   border: 1px solid var(--border-strong); background: var(--surface-2);
-  color: var(--ink-2); border-radius: 999px;
+  color: var(--ink-2); border-radius: 999px; white-space: nowrap; flex: 0 0 auto;
 }
 .recent-chip:hover { color: var(--accent); border-color: var(--accent); }
+/* 视图切换：大图 / 列表 */
+.view-toggle {
+  flex-shrink: 0; width: 30px; height: 30px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 14px; color: var(--ink-3);
+}
+.view-toggle.on { background: var(--accent); color: #fff; border-color: var(--accent); }
 .fav-btn {
   position: absolute; top: 5px; right: 5px; z-index: 2;
   width: 22px; height: 22px; padding: 0; cursor: pointer;

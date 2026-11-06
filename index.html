@@ -12,7 +12,7 @@
   <link rel="stylesheet" href="https://cdn.staticfile.org/lxgw-wenkai-screen-webfont/1.7.0/style.css" />
   <link rel="stylesheet" href="https://unpkg.com/misans@5.0.0/lib/Normal/MiSans-Regular.min.css" />
   <link rel="stylesheet" href="https://unpkg.com/misans@5.0.0/lib/Normal/MiSans-Bold.min.css" />
-  <link rel="stylesheet" href="styles.css?v=20261106i" />
+  <link rel="stylesheet" href="styles.css?v=20261106j" />
 </head>
 <body>
   <!-- 顶栏 -->
@@ -46,19 +46,23 @@
     <!-- 左：素材中心 -->
     <aside class="panel-left glass">
       <div class="tabs" id="tabs">
-        <button class="tab active" data-tab="style">风格</button>
-        <button class="tab" data-tab="layout">排版</button>
-        <button class="tab" data-tab="color">配色</button>
-        <button class="tab" data-tab="character">角色</button>
-        <button class="tab" data-tab="mine">我的图片</button>
-        <button class="tab" data-tab="font">字体</button>
+        <button class="tab active" data-tab="style"><span class="ti">🎨</span><span>风格</span></button>
+        <button class="tab" data-tab="layout"><span class="ti">📐</span><span>排版</span></button>
+        <button class="tab" data-tab="color"><span class="ti">🌈</span><span>配色</span></button>
+        <button class="tab" data-tab="character"><span class="ti">🧑</span><span>角色</span></button>
+        <button class="tab" data-tab="mine"><span class="ti">🖼️</span><span>我的</span></button>
+        <button class="tab" data-tab="font"><span class="ti">🔤</span><span>字体</span></button>
       </div>
       <div class="asset-tools">
         <div class="asset-search-row">
           <input id="assetSearch" class="inp" placeholder="搜索素材 / 编号 / 名称…" />
           <button id="btnFavOnly" class="mini-btn fav-filter" title="只看收藏的素材">★</button>
+          <button id="btnViewToggle" class="mini-btn view-toggle" title="切换大图 / 列表视图">▦</button>
         </div>
-        <div id="recentBar" class="recent-bar" hidden></div>
+        <div class="recent-block" id="recentBlock" hidden>
+          <div class="recent-head"><span>最近使用</span><button class="link-btn" id="btnClearRecent" title="清空最近使用">清空</button></div>
+          <div id="recentBar" class="recent-bar"></div>
+        </div>
       </div>
       <div class="tab-body" id="tabBody">
         <!-- 由 JS 渲染 -->
@@ -393,7 +397,7 @@
   <div id="toast" class="toast" hidden></div>
 
   <script src="data.js?v=20261106i"></script>
-  <script src="app.js?v=20261106i"></script>
+  <script src="app.js?v=20261106j"></script>
   <script src="workbench.js?v=20261106i"></script>
 </body>
 </html>

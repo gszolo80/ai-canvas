@@ -69,8 +69,9 @@
   let backendOK = false;             // 最近一次代理健康检测结果
   const favSet = new Set();          // "tab:id"
   let recentList = [];              // [{tab,id,label}]
-  let assetQuery = "", favOnly = false;
-  const LS_FAVS = "aicanvas_favs", LS_RECENT = "aicanvas_recent";
+  let assetQuery = "", favOnly = false, viewMode = "grid";
+  const LS_FAVS = "aicanvas_favs", LS_RECENT = "aicanvas_recent", LS_VIEW = "aicanvas_view";
+  try { viewMode = localStorage.getItem(LS_VIEW) === "list" ? "list" : "grid"; } catch (e) {}
   try {
     const f = JSON.parse(localStorage.getItem(LS_FAVS) || "[]");
     if (Array.isArray(f)) f.forEach((k) => favSet.add(k));
@@ -640,11 +641,12 @@
     renderRecent();
   }
   function renderRecent() {
+    const block = $("#recentBlock");
     const bar = $("#recentBar");
-    if (!bar) return;
-    bar.hidden = recentList.length === 0;
+    if (!block || !bar) return;
+    block.hidden = recentList.length === 0;
     bar.innerHTML = recentList.length
-      ? `<span class="recent-label">最近：</span>` + recentList.map((r) =>
+      ? recentList.map((r) =>
           `<button class="recent-chip" data-tab="${esc(r.tab)}" data-id="${esc(r.id)}" title="再次使用 ${esc(r.full || r.label)}">${esc(r.label)}</button>`).join("")
       : "";
     bar.querySelectorAll(".recent-chip").forEach((b) => {
@@ -688,12 +690,12 @@
       const meta = `<div class="lib-meta">共 ${filtered.length} 项${cur !== "全部" ? " · 已筛选「" + cur + "」" : ""}${q ? ' · 搜索「' + esc(assetQuery.trim()) + '」' : ""}${favOnly ? " · 只看收藏" : ""}</div>`;
       const filter = `<div class="filter-block"><div class="filter-title">分类筛选</div><div class="catbar">${chips}</div></div>`;
       tabBody.innerHTML = `<div class="tab-tools">${tools}</div>${filter}${meta}` +
-        (visible.length ? `<div class="grid">${visible.map((it) => cardHTML(tab, it)).join("")}</div>` : emptyResult()) +
+        (visible.length ? `<div class="grid${viewMode === "list" ? " list-view" : ""}">${visible.map((it) => cardHTML(tab, it)).join("")}</div>` : emptyResult()) +
         (hasMore ? `<div class="loadmore"><button class="mini-btn" id="btnLoadMore">加载更多（还剩 ${filtered.length - lim} 张）</button></div>` : "");
     } else if (tab === "color") {
       const list = COLORS.filter((it) => assetMatches(it, "color", q));
       tabBody.innerHTML = `<div class="lib-meta">共 ${list.length} 项${q ? ' · 搜索「' + esc(assetQuery.trim()) + '」' : ""}${favOnly ? " · 只看收藏" : ""}</div>` +
-        (list.length ? `<div class="grid">${list.map((it) => cardHTML("color", it)).join("")}</div>` : emptyResult());
+        (list.length ? `<div class="grid${viewMode === "list" ? " list-view" : ""}">${list.map((it) => cardHTML("color", it)).join("")}</div>` : emptyResult());
     } else if (tab === "font") {
       renderFonts();
     } else if (tab === "character") {
@@ -2195,10 +2197,23 @@
       $("#btnFavOnly").classList.toggle("on", favOnly);
       renderTab(activeTab());
     };
+    $("#btnViewToggle").onclick = () => {
+      viewMode = viewMode === "list" ? "grid" : "list";
+      $("#btnViewToggle").classList.toggle("on", viewMode === "list");
+      try { localStorage.setItem(LS_VIEW, viewMode); } catch (e) {}
+      renderTab(activeTab());
+    };
+    $("#btnClearRecent").onclick = () => {
+      recentList = [];
+      try { localStorage.removeItem(LS_RECENT); } catch (e) {}
+      renderRecent();
+      toast("已清空最近使用");
+    };
     // 文字属性控件连续拖动合并成一步撤销
     $("#textProps").addEventListener("pointerdown", () => pushHistory("tp:" + (state.selectedId || "")), true);
     $("#textProps").addEventListener("input", () => pushHistory("tp:" + (state.selectedId || "")), true);
     renderRecent();
+    $("#btnViewToggle").classList.toggle("on", viewMode === "list");
     bindQuickKeys();
     refreshBackendStatus();
     // 只在用户真的启用了代理时自动探测；demo 模式首屏不发这个请求，
