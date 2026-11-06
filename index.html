@@ -12,7 +12,7 @@
   <link rel="stylesheet" href="https://cdn.staticfile.org/lxgw-wenkai-screen-webfont/1.7.0/style.css" />
   <link rel="stylesheet" href="https://unpkg.com/misans@5.0.0/lib/Normal/MiSans-Regular.min.css" />
   <link rel="stylesheet" href="https://unpkg.com/misans@5.0.0/lib/Normal/MiSans-Bold.min.css" />
-  <link rel="stylesheet" href="styles.css?v=20261106j" />
+  <link rel="stylesheet" href="styles.css?v=20261106k" />
 </head>
 <body>
   <!-- 顶栏 -->
@@ -45,13 +45,18 @@
   <main class="layout">
     <!-- 左：素材中心 -->
     <aside class="panel-left glass">
-      <div class="tabs" id="tabs">
-        <button class="tab active" data-tab="style"><span class="ti">🎨</span><span>风格</span></button>
-        <button class="tab" data-tab="layout"><span class="ti">📐</span><span>排版</span></button>
-        <button class="tab" data-tab="color"><span class="ti">🌈</span><span>配色</span></button>
-        <button class="tab" data-tab="character"><span class="ti">🧑</span><span>角色</span></button>
-        <button class="tab" data-tab="mine"><span class="ti">🖼️</span><span>我的</span></button>
-        <button class="tab" data-tab="font"><span class="ti">🔤</span><span>字体</span></button>
+      <div class="tab-strip" id="tabs">
+        <button class="tab active" data-tab="style">风格</button>
+        <span class="tab-sep">/</span>
+        <button class="tab" data-tab="layout">排版</button>
+        <span class="tab-sep">/</span>
+        <button class="tab" data-tab="color">配色</button>
+        <span class="tab-sep">/</span>
+        <button class="tab" data-tab="character">角色</button>
+        <span class="tab-sep">/</span>
+        <button class="tab" data-tab="mine">我的</button>
+        <span class="tab-sep">/</span>
+        <button class="tab" data-tab="font">字体</button>
       </div>
       <div class="asset-tools">
         <div class="asset-search-row">
@@ -394,10 +399,26 @@
     </div>
   </div>
 
+  <!-- 图片选择弹窗：点按钮弹出，展示全部图片做选择 -->
+  <div class="modal-mask" id="imgPickerMask" hidden>
+    <div class="modal glass imgpicker-modal">
+      <div class="settings-head">
+        <h3>🖼 选择图片</h3>
+        <button class="modal-x" id="imgPickerClose" title="关闭">×</button>
+      </div>
+      <div class="rp-tip" id="imgPickerHint">点任意一张图片即可加入画布；角色图会同时锁定为主角。</div>
+      <div id="imgPickerGrid" class="imgpicker-grid"></div>
+      <div class="modal-foot">
+        <button class="btn" id="imgPickerUpload" type="button">＋ 上传图片</button>
+        <button class="btn" id="imgPickerCancel" type="button">取消</button>
+      </div>
+    </div>
+  </div>
+
   <div id="toast" class="toast" hidden></div>
 
   <script src="data.js?v=20261106i"></script>
-  <script src="app.js?v=20261106j"></script>
+  <script src="app.js?v=20261106k"></script>
   <script src="workbench.js?v=20261106i"></script>
 </body>
 </html>

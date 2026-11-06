@@ -69,7 +69,7 @@
   let backendOK = false;             // 最近一次代理健康检测结果
   const favSet = new Set();          // "tab:id"
   let recentList = [];              // [{tab,id,label}]
-  let assetQuery = "", favOnly = false, viewMode = "grid";
+  let assetQuery = "", favOnly = false, viewMode = "grid", catCollapsed = false;
   const LS_FAVS = "aicanvas_favs", LS_RECENT = "aicanvas_recent", LS_VIEW = "aicanvas_view";
   try { viewMode = localStorage.getItem(LS_VIEW) === "list" ? "list" : "grid"; } catch (e) {}
   try {
@@ -688,7 +688,10 @@
       const tools = isStyle ? `<button class="mini-btn" id="btnNewStyle">＋ 自定义风格</button>` : "";
       const chips = catList.map((c) => `<button class="cat ${c === cur ? "active" : ""}" data-cat="${c}">${c}${c === "全部" ? "" : " ·" + (counts[c] || 0)}</button>`).join("");
       const meta = `<div class="lib-meta">共 ${filtered.length} 项${cur !== "全部" ? " · 已筛选「" + cur + "」" : ""}${q ? ' · 搜索「' + esc(assetQuery.trim()) + '」' : ""}${favOnly ? " · 只看收藏" : ""}</div>`;
-      const filter = `<div class="filter-block"><div class="filter-title">分类筛选</div><div class="catbar">${chips}</div></div>`;
+      const filter = `<div class="filter-block${catCollapsed ? " collapsed" : ""}" id="catFilter">
+        <div class="filter-title" id="catToggle"><span class="ft-label">分类筛选</span><span class="collapse-arrow">▾</span></div>
+        <div class="catbar" id="catbar">${chips}</div>
+      </div>`;
       tabBody.innerHTML = `<div class="tab-tools">${tools}</div>${filter}${meta}` +
         (visible.length ? `<div class="grid${viewMode === "list" ? " list-view" : ""}">${visible.map((it) => cardHTML(tab, it)).join("")}</div>` : emptyResult()) +
         (hasMore ? `<div class="loadmore"><button class="mini-btn" id="btnLoadMore">加载更多（还剩 ${filtered.length - lim} 张）</button></div>` : "");
@@ -712,9 +715,15 @@
       const mine = state.mine.filter((m) => assetMatches(m, "mine", q));
       const rows = mine.map((m) => `<div class="titem" data-mid="${m.id}" title="点击或拖入画布">
         <img src="${m.src}" alt="${m.name}"/></div>`).join("");
+      const canBrowse = state.mine.length + state.characters.length > 0;
+      const browseBtn = canBrowse
+        ? `<button class="btn block mine-browse" id="btnBrowseAll" type="button">🗂 浏览全部图片…</button>`
+        : "";
       tabBody.innerHTML = `
+        ${browseBtn}
         <div class="upload-pad" id="minePad">🖼 上传图片<br><small>（照片 / logo / 素材，拖进画布自由组合）</small></div>
         <div class="thumb-row" id="mineRow">${rows || '<div class="layer-empty">还没有上传图片</div>'}</div>`;
+      const bba = $("#btnBrowseAll"); if (bba) bba.onclick = openImagePicker;
       $("#minePad").onclick = () => pickFiles("mine");
       bindThumbRow();
     }
@@ -764,6 +773,13 @@
         renderTab(active);
       };
     });
+    // 分类框折叠 / 展开
+    const ctg = $("#catToggle");
+    if (ctg) ctg.onclick = () => {
+      catCollapsed = !catCollapsed;
+      const fb = $("#catFilter");
+      if (fb) fb.classList.toggle("collapsed", catCollapsed);
+    };
     const bns = $("#btnNewStyle"); if (bns) bns.onclick = () => openSettings("custom");
     const lm = $("#btnLoadMore"); if (lm) lm.onclick = () => { gridLimit += 60; renderTab(tab); tabBody.scrollTop = tabBody.scrollHeight; };
     // 自定义字体删除
@@ -1587,6 +1603,32 @@
     notifyGenerated(src, label);
   }
   function closeVariants() { const m = $("#variantMask"); if (m) m.hidden = true; }
+
+  // ---------- 图片选择弹窗：展示全部图片做选择 ----------
+  function openImagePicker() {
+    const mask = $("#imgPickerMask"), grid = $("#imgPickerGrid");
+    if (!mask || !grid) return;
+    const imgs = [];
+    (state.mine || []).forEach((m) => imgs.push({ tab: "mine", id: m.id, src: m.src, name: m.name || "图片" }));
+    (state.characters || []).forEach((c) => imgs.push({ tab: "character", id: c.id, src: c.src, name: c.name || "角色", isChar: true }));
+    if (!imgs.length) {
+      grid.innerHTML = `<div class="layer-empty" style="padding:26px 4px;grid-column:1/-1">还没有图片，先上传图片或角色图吧（左侧「上传图片 / 角色图」）。</div>`;
+    } else {
+      grid.innerHTML = imgs.map((it) => `<div class="ip-item" data-tab="${it.tab}" data-id="${esc(it.id)}" title="${esc(it.name)} · 点击加入画布">
+        <img src="${it.src}" alt="${esc(it.name)}"/>
+        ${it.isChar ? '<div class="ip-badge">角色</div>' : ""}
+        <div class="ip-name">${esc(it.name)}</div>
+      </div>`).join("");
+      grid.querySelectorAll(".ip-item").forEach((el) => {
+        el.onclick = () => {
+          addFromCard(el.dataset.tab, el.dataset.id, null);
+          closeImagePicker();
+        };
+      });
+    }
+    mask.hidden = false;
+  }
+  function closeImagePicker() { const m = $("#imgPickerMask"); if (m) m.hidden = true; }
   function showVariants(list, label, hint) {
     const mask = $("#variantMask"), grid = $("#variantGrid");
     if (!mask || !grid) return false;
@@ -2072,6 +2114,11 @@
     $("#variantClose").onclick = closeVariants;
     $("#variantDiscard").onclick = closeVariants;
     $("#variantMask").onclick = (e) => { if (e.target.id === "variantMask") closeVariants(); };
+    // 图片选择弹窗
+    $("#imgPickerClose").onclick = closeImagePicker;
+    $("#imgPickerCancel").onclick = closeImagePicker;
+    $("#imgPickerMask").onclick = (e) => { if (e.target.id === "imgPickerMask") closeImagePicker(); };
+    $("#imgPickerUpload").onclick = () => { closeImagePicker(); pickFiles("mine"); };
     $("#btnClear").onclick = () => {
       pushHistory("clear");
       state.layers = []; state.selectedId = null; emptyState.style.display = "";
@@ -2166,7 +2213,11 @@
     });
     // 点背景关闭 + ESC 关闭
     $("#settingsMask").addEventListener("click", (e) => { if (e.target.id === "settingsMask") closeSettings(); });
-    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("#settingsMask").hidden) closeSettings(); });
+    document.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape") return;
+      if (!$("#settingsMask").hidden) closeSettings();
+      else if (!$("#imgPickerMask").hidden) closeImagePicker();
+    });
     // 退出浏览器全屏时同步「全屏画布」按钮状态
     document.addEventListener("fullscreenchange", () => {
       if (!document.fullscreenElement && document.body.classList.contains("focus-canvas")) {
