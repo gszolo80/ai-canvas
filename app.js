@@ -671,28 +671,15 @@
     if (tab === "style" || tab === "layout") {
       const isStyle = tab === "style";
       const all = isStyle ? allStyles() : LAYOUTS;
-      const fn = isStyle ? styleCat : layoutCat;
-      const cur = isStyle ? state.styleCat : state.layoutCat;
-      const counts = catCounts(all, fn);
-      const baseCats = isStyle ? Object.values(STYLE_CATS) : Object.values(LAYOUT_CATS);
-      const catList = ["全部"].concat(baseCats.filter((c) => counts[c]));
-      if (counts["我的自定义"]) catList.push("我的自定义");
-      if (counts["其他"]) catList.push("其他");
-      let filtered = cur === "全部" ? all : all.filter((it) => fn(it.id) === cur);
-      filtered = filtered.filter((it) => assetMatches(it, tab, q));
-      const key = tab + "|" + cur;
+      const filtered = all.filter((it) => assetMatches(it, tab, q));
+      const key = tab;
       if (key !== lastGridKey) { gridLimit = 60; lastGridKey = key; }
       lim = (q || favOnly) ? 120 : gridLimit;
       const visible = filtered.slice(0, lim);
       const hasMore = !q && !favOnly && filtered.length > lim;
       const tools = isStyle ? `<button class="mini-btn" id="btnNewStyle">＋ 自定义风格</button>` : "";
-      const chips = catList.map((c) => `<button class="cat ${c === cur ? "active" : ""}" data-cat="${c}">${c}${c === "全部" ? "" : " ·" + (counts[c] || 0)}</button>`).join("");
-      const meta = `<div class="lib-meta"><span class="lib-meta-text">共 ${filtered.length} 项${cur !== "全部" ? " · 已筛选「" + cur + "」" : ""}${q ? ' · 搜索「' + esc(assetQuery.trim()) + '」' : ""}${favOnly ? " · 只看收藏" : ""}</span><button class="meta-all" id="btnMetaBrowse" type="button" data-type="${tab}" title="查看全部${tab === "color" ? "配色" : "图片"}">▦ 全部</button></div>`;
-      const filter = `<div class="filter-block${catCollapsed ? " collapsed" : ""}" id="catFilter">
-        <div class="filter-title" id="catToggle"><span class="ft-label">分类筛选</span><button type="button" class="collapse-btn" id="catCollapseBtn" title="折叠 / 展开分类"><span class="collapse-arrow">▾</span></button></div>
-        <div class="catbar" id="catbar">${chips}</div>
-      </div>`;
-      tabBody.innerHTML = `<div class="tab-tools">${tools}</div>${filter}${meta}` +
+      const meta = `<div class="lib-meta"><span class="lib-meta-text">共 ${filtered.length} 项${q ? ' · 搜索「' + esc(assetQuery.trim()) + '」' : ""}${favOnly ? " · 只看收藏" : ""}</span><button class="meta-all" id="btnMetaBrowse" type="button" data-type="${tab}" title="查看全部${isStyle ? "风格" : "排版"}">▦ 全部</button></div>`;
+      tabBody.innerHTML = `<div class="tab-tools">${tools}</div>${meta}` +
         (visible.length ? `<div class="grid${viewMode === "list" ? " list-view" : ""}">${visible.map((it) => cardHTML(tab, it)).join("")}</div>` : emptyResult()) +
         (hasMore ? `<div class="loadmore"><button class="mini-btn" id="btnLoadMore">加载更多（还剩 ${filtered.length - lim} 张）</button></div>` : "");
     } else if (tab === "color") {
@@ -706,6 +693,7 @@
       const rows = chars.map((c) => `<div class="titem ${c.isMain ? "active" : ""}" data-cid="${c.id}" title="点击设为【主角】，拖入画布">
         <img src="${c.src}" alt="${c.name}"/><div class="badge">${c.isMain ? "主角" : "参考"}</div></div>`).join("");
       tabBody.innerHTML = `
+        <div class="lib-meta"><span class="lib-meta-text">共 ${chars.length} 项${q ? ' · 搜索「' + esc(assetQuery.trim()) + '」' : ""}${favOnly ? " · 只看收藏" : ""}</span><button class="meta-all" id="btnMetaBrowse" type="button" data-type="character" title="查看全部角色图">▦ 全部</button></div>
         <div class="upload-pad" id="charPad">📸 上传你的角色图<br><small>（可传多张，锁定一个主角，生成图都保持同一人）</small></div>
         <div class="thumb-row" id="charRow">${rows || '<div class="layer-empty">还没有角色图</div>'}</div>
         <div class="rp-tip">提示：传 3–10 张不同角度，一致性更好。拖缩略图进画布即锁定为主角。</div>`;
@@ -715,15 +703,13 @@
       const mine = state.mine.filter((m) => assetMatches(m, "mine", q));
       const rows = mine.map((m) => `<div class="titem" data-mid="${m.id}" title="点击或拖入画布">
         <img src="${m.src}" alt="${m.name}"/></div>`).join("");
-      const canBrowse = state.mine.length + state.characters.length > 0;
-      const browseBtn = canBrowse
-        ? `<button class="btn block mine-browse" id="btnBrowseAll" type="button">🗂 浏览全部图片…</button>`
-        : "";
+      const canBrowse = state.mine.length > 0;
+      const meta = `<div class="lib-meta"><span class="lib-meta-text">共 ${mine.length} 项${q ? ' · 搜索「' + esc(assetQuery.trim()) + '」' : ""}${favOnly ? " · 只看收藏" : ""}</span><button class="meta-all" id="btnMetaBrowse" type="button" data-type="mine" title="查看全部图片">▦ 全部</button></div>`;
       tabBody.innerHTML = `
-        ${browseBtn}
+        ${meta}
         <div class="upload-pad" id="minePad">🖼 上传图片<br><small>（照片 / logo / 素材，拖进画布自由组合）</small></div>
         <div class="thumb-row" id="mineRow">${rows || '<div class="layer-empty">还没有上传图片</div>'}</div>`;
-      const bba = $("#btnBrowseAll"); if (bba) bba.onclick = () => openImagePicker("mine");
+      const bba = $("#btnMetaBrowse"); if (bba) bba.onclick = () => openImagePicker("mine");
       $("#minePad").onclick = () => pickFiles("mine");
       bindThumbRow();
     }
@@ -764,22 +750,6 @@
         e.dataTransfer.setData("text/plain", payload);
       });
     });
-    // 分类筛选
-    tabBody.querySelectorAll(".cat").forEach((el) => {
-      el.onclick = () => {
-        const c = el.dataset.cat;
-        const active = tabsEl.querySelector(".tab.active").dataset.tab;
-        if (active === "style") state.styleCat = c; else state.layoutCat = c;
-        renderTab(active);
-      };
-    });
-    // 分类框折叠 / 展开
-    const ctg = $("#catToggle");
-    if (ctg) ctg.onclick = () => {
-      catCollapsed = !catCollapsed;
-      const fb = $("#catFilter");
-      if (fb) fb.classList.toggle("collapsed", catCollapsed);
-    };
     const bns = $("#btnNewStyle"); if (bns) bns.onclick = () => openSettings("custom");
     const mab = $("#btnMetaBrowse"); if (mab) mab.onclick = () => openImagePicker(mab.dataset.type);
     const lm = $("#btnLoadMore"); if (lm) lm.onclick = () => { gridLimit += 60; renderTab(tab); tabBody.scrollTop = tabBody.scrollHeight; };
@@ -803,7 +773,9 @@
         <button class="cust-del" data-fname="${f.name}" title="删除该字体">×</button>
         ${roleRowHTML()}
       </div>`).join("");
-    tabBody.innerHTML = `<div class="tab-tools"><button class="mini-btn" id="btnUpFont">＋ 上传字体（自定义）</button></div>` +
+    const total = FONTS.length + custom.length;
+    const meta = `<div class="lib-meta"><span class="lib-meta-text">共 ${total} 项（内置 ${FONTS.length} · 自定义 ${custom.length}）${q ? ' · 搜索「' + esc(assetQuery.trim()) + '」' : ""}</span><button class="meta-all" id="btnMetaBrowse" type="button" data-type="font" title="查看全部字体（含免费下载地址）">▦ 全部</button></div>`;
+    tabBody.innerHTML = `<div class="tab-tools"><button class="mini-btn" id="btnUpFont">＋ 上传字体（自定义）</button></div>${meta}` +
       (cards || customHtml ? `<div class="grid">${cards}${customHtml}</div>` : emptyResult()) +
       (!customHtml ? `<div class="rp-tip" style="margin:8px 2px">支持 .ttf / .otf / .woff / .woff2，上传后自动注册到本机浏览器，可直接拖入画布做文字层。</div>` : "");
     const up = $("#btnUpFont"); if (up) up.onclick = uploadFont;
@@ -1611,6 +1583,9 @@
     if (type === "style") return allStyles().map((it) => ({ tab: "style", id: it.id, src: it.img, name: it.name || it.id }));
     if (type === "layout") return LAYOUTS.map((it) => ({ tab: "layout", id: it.id, src: it.img, name: it.name || it.id }));
     if (type === "color") return COLORS.map((it) => ({ tab: "color", id: it.id, color: colorHex(it), name: it.name }));
+    if (type === "character") return (state.characters || []).map((c) => ({ tab: "character", id: c.id, src: c.src, name: c.name || "角色", isChar: true }));
+    if (type === "mine") return (state.mine || []).map((m) => ({ tab: "mine", id: m.id, src: m.src, name: m.name || "图片" }));
+    if (type === "font") return FONTS.map((f) => ({ tab: "font", id: f.name, font: f }));
     const arr = [];
     (state.mine || []).forEach((m) => arr.push({ tab: "mine", id: m.id, src: m.src, name: m.name || "图片" }));
     (state.characters || []).forEach((c) => arr.push({ tab: "character", id: c.id, src: c.src, name: c.name || "角色", isChar: true }));
@@ -1638,6 +1613,7 @@
     const info = pickerCatInfo(pickerType);
     let items = pickerBaseItems(pickerType);
     if (pickerCat !== "全部" && info.fn) items = items.filter((it) => info.fn(it.id) === pickerCat);
+    if (pickerType === "font") { renderFontPicker(grid, items); return; }
     if (!items.length) {
       grid.innerHTML = `<div class="layer-empty" style="padding:26px 4px;grid-column:1/-1">${pickerType === "color" ? "该分类下还没有配色" : "该分类下还没有图片"}</div>`;
       return;
@@ -1651,6 +1627,28 @@
       el.onclick = () => { addFromCard(el.dataset.tab, el.dataset.id, null); closeImagePicker(); };
     });
   }
+  function renderFontPicker(grid, items) {
+    if (!items.length) {
+      grid.innerHTML = `<div class="layer-empty" style="padding:26px 4px;grid-column:1/-1">还没有字体（可点「＋ 上传字体」添加自定义字体）</div>`;
+      return;
+    }
+    grid.innerHTML = items.map((it) => {
+      const f = it.font;
+      const url = f.url || "";
+      const dl = url
+        ? `<a class="ip-dl" href="${url}" target="_blank" rel="noopener noreferrer" title="在新窗口打开免费字体下载 / 预览页">查看/下载 ↗</a>`
+        : `<span class="ip-dl sys">系统内置</span>`;
+      return `<div class="ip-item ip-font" data-tab="font" data-id="${esc(f.name)}" title="${esc(f.name)} · 点击加入画布">
+        <div class="ip-thumb ip-font-sample" style="font-family:${f.css}">永和九年<br><span class="ip-fs">Abc 字体预览</span></div>
+        <div class="ip-name">${esc(f.name)}</div>
+        <div class="ip-lic">${esc(f.license || "")}${f.source ? " · " + esc(f.source) : ""}</div>
+        ${dl}
+      </div>`;
+    }).join("");
+    grid.querySelectorAll(".ip-item").forEach((el) => {
+      el.onclick = (e) => { if (e.target.closest("a.ip-dl")) return; addFromCard("font", el.dataset.id, null); closeImagePicker(); };
+    });
+  }
   function openImagePicker(type) {
     const mask = $("#imgPickerMask"), hint = $("#imgPickerHint"), head = $("#imgPickerHead");
     if (!mask) return;
@@ -1659,6 +1657,9 @@
     if (pickerType === "style") { title = "全部风格"; hintText = "点任意一张风格即可加入画布；上方可按分类筛选。"; }
     else if (pickerType === "layout") { title = "全部排版"; hintText = "点任意一张排版即可加入画布；上方可按分类筛选。"; }
     else if (pickerType === "color") { title = "全部配色"; hintText = "点任意一块配色即可加入画布。"; }
+    else if (pickerType === "character") { title = "全部角色图"; hintText = "点任意一张角色图即可加入画布并锁定为主角。"; }
+    else if (pickerType === "mine") { title = "全部图片"; hintText = "点任意一张图片即可加入画布。"; }
+    else if (pickerType === "font") { title = "全部字体"; hintText = "点字体卡片即加入画布；「查看/下载」可去免费字体页预览与获取。"; }
     if (head) head.textContent = "🖼 " + title;
     if (hint) hint.textContent = hintText;
     renderPickerCats();

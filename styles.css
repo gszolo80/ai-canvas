@@ -142,43 +142,6 @@ body {
 .tab-sep { color: var(--ink-3); font-size: 13px; padding: 0 6px; user-select: none; line-height: 1; }
 
 /* ---- 左侧：分类筛选（可折叠，无横向滚动条） ---- */
-.filter-block {
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
-  padding: 9px 10px 11px;
-  margin-bottom: var(--s-3);
-}
-.filter-title {
-  font-size: 11px; font-weight: 600; color: var(--ink-3);
-  text-transform: none; letter-spacing: .4px;
-  margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;
-  cursor: pointer; user-select: none;
-}
-.filter-title::before { content: ""; width: 3px; height: 11px; border-radius: 2px; background: var(--accent); flex-shrink: 0; margin-right: 6px; }
-.filter-title .ft-label { flex: 1; }
-.filter-title .collapse-btn {
-  flex: 0 0 auto; width: 26px; height: 26px;
-  display: inline-flex; align-items: center; justify-content: center;
-  border: 1px solid var(--border-strong); background: var(--surface);
-  border-radius: 7px; cursor: pointer; color: var(--ink-2);
-  transition: all .15s; margin-left: 6px;
-}
-.filter-title .collapse-btn:hover { border-color: var(--accent); color: var(--accent); box-shadow: var(--sh-sm); }
-.filter-title .collapse-arrow { font-size: 12px; line-height: 1; transition: transform .15s; display: inline-block; }
-.filter-block.collapsed .catbar { display: none; }
-.filter-block.collapsed .collapse-arrow { transform: rotate(-90deg); }
-.catbar { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
-.cat { flex: 0 0 auto; }
-.cat {
-  font-family: inherit; cursor: pointer; border: 1px solid var(--border-strong);
-  background: var(--surface); color: var(--ink-2);
-  padding: 5px 10px; border-radius: 999px; font-size: 11.5px; transition: all .15s;
-  white-space: nowrap;
-}
-.cat:hover { color: var(--ink); border-color: var(--accent); }
-.cat.active { background: var(--accent); color: #fff; border-color: var(--accent); }
-
 .lib-meta { font-size: 11.5px; color: var(--ink-3); margin: 2px 2px 10px; display: flex; align-items: center; gap: 8px; }
 .lib-meta-text { flex: 1; min-width: 0; }
 .meta-all {
@@ -981,3 +944,21 @@ body.dark .rb-item img, body.dark .variant-card img { background: #20242e; }
 .ip-cat:hover { border-color: var(--accent); color: var(--accent); }
 .ip-cat.active { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600; }
 body.dark .ip-item .ip-name { background: var(--surface-2); }
+/* 字体选择弹窗：预览 + 免费下载入口 */
+.ip-item.ip-font { cursor: pointer; }
+.ip-item.ip-font .ip-thumb.ip-font-sample {
+  aspect-ratio: auto; min-height: 86px; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 6px;
+  background: var(--surface-2); font-size: 30px; line-height: 1.1; color: var(--ink);
+  padding: 12px 8px; box-sizing: border-box; overflow: hidden;
+}
+.ip-item.ip-font .ip-font-sample .ip-fs { font-size: 11px; color: var(--ink-3); line-height: 1.3; }
+.ip-item.ip-font .ip-lic { font-size: 10.5px; color: var(--ink-3); margin: 0 8px 6px; text-align: center; }
+.ip-item.ip-font .ip-dl {
+  display: block; margin: 0 8px 10px; padding: 5px 8px; text-align: center;
+  font-size: 11.5px; font-weight: 600; text-decoration: none;
+  border: 1px solid var(--accent); color: var(--accent); border-radius: 7px;
+  transition: all .15s;
+}
+.ip-item.ip-font .ip-dl:hover { background: var(--accent); color: #fff; }
+.ip-item.ip-font .ip-dl.sys { border-style: dashed; border-color: var(--border-strong); color: var(--ink-3); cursor: default; }
