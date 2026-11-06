@@ -836,8 +836,21 @@ body.dark .ref-item { background: var(--surface-2); }
   font-family: inherit; cursor: pointer; font-size: 10.5px; padding: 4px 8px;
   border: 1px solid var(--border-strong); background: var(--surface-2);
   color: var(--ink-2); border-radius: 999px; white-space: nowrap; flex: 0 0 auto;
+  display: inline-flex; align-items: center; gap: 5px;
 }
 .recent-chip:hover { color: var(--accent); border-color: var(--accent); }
+/* 「最近使用」里每条前面的类型标记：风 / 排 / 配 / 角 / 图 / 字 */
+.recent-chip .rc-type {
+  flex: 0 0 auto; font-size: 9.5px; font-weight: 700; line-height: 1;
+  padding: 2px 4px; border-radius: 5px; background: var(--accent); color: #fff;
+}
+.recent-chip .rc-id { font-variant-numeric: tabular-nums; letter-spacing: .2px; }
+.recent-chip[data-tab="style"] .rc-type { background: #5b5bd6; }
+.recent-chip[data-tab="layout"] .rc-type { background: #0d9488; }
+.recent-chip[data-tab="color"] .rc-type { background: #d97706; }
+.recent-chip[data-tab="character"] .rc-type { background: #db2777; }
+.recent-chip[data-tab="mine"] .rc-type { background: #64748b; }
+.recent-chip[data-tab="font"] .rc-type { background: #7c3aed; }
 /* 视图切换：大图 / 列表 */
 .view-toggle {
   flex-shrink: 0; width: 30px; height: 30px; padding: 0;

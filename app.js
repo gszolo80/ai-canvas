@@ -623,6 +623,8 @@
   }
 
   // ---------- 素材检索：搜索 / 收藏 / 最近使用 ----------
+  const TYPE_SHORT = { style: "风", layout: "排", color: "配", character: "角", mine: "图", font: "字" };
+  const TYPE_NAME = { style: "风格", layout: "排版", color: "配色", character: "角色", mine: "我的图片", font: "字体" };
   function assetMatches(item, tab, q) {
     const key = histKey(tab, item.id || item.name);
     if (favOnly && !favSet.has(key)) return false;
@@ -636,7 +638,7 @@
     // 官方素材显示编号（短、好扫），自定义 / 上传图才显示名称
     const label = /^(FA|FB|FC|FD|FE|FF|FG|FH|FI|SC|SB|IG|EC|IP|C)-\d/.test(String(id))
       ? String(id) : full.slice(0, 8);
-    recentList = [{ tab, id, label, full }].concat(recentList.filter((r) => !(r.tab === tab && r.id === id))).slice(0, 8);
+    recentList = [{ tab, id, label, full, typeShort: TYPE_SHORT[tab] || tab }].concat(recentList.filter((r) => !(r.tab === tab && r.id === id))).slice(0, 8);
     try { localStorage.setItem(LS_RECENT, JSON.stringify(recentList)); } catch (e) {}
     renderRecent();
   }
@@ -646,8 +648,11 @@
     if (!block || !bar) return;
     block.hidden = recentList.length === 0;
     bar.innerHTML = recentList.length
-      ? recentList.map((r) =>
-          `<button class="recent-chip" data-tab="${esc(r.tab)}" data-id="${esc(r.id)}" title="再次使用 ${esc(r.full || r.label)}">${esc(r.label)}</button>`).join("")
+      ? recentList.map((r) => {
+          const ts = r.typeShort || TYPE_SHORT[r.tab] || r.tab;
+          const tn = TYPE_NAME[r.tab] || r.tab;
+          return `<button class="recent-chip" data-tab="${esc(r.tab)}" data-id="${esc(r.id)}" title="再次使用（${esc(tn)}）${esc(r.full || r.label)}"><span class="rc-type">${esc(ts)}</span><span class="rc-id">${esc(r.label)}</span></button>`;
+        }).join("")
       : "";
     bar.querySelectorAll(".recent-chip").forEach((b) => {
       b.onclick = () => addFromCard(b.dataset.tab, b.dataset.id, null);
