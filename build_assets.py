@@ -56,6 +56,21 @@ def parse(md, src_prefix, idpat):
         seen[it["id"]] = it
     return list(seen.values())
 
+# 配色主题色：由本地 assets/images/colors/C-XX.webp 原图取色得到（有色像素按色相分桶取主桶均值）。
+# 源 COLORS.md 只有 id/name/prompt，没有色值；app.js 的色卡 / 底色层 / 演示底图都依赖 hex，缺了会抛
+# "addColorStop: undefined could not be parsed as a color" 并让「生成底图」整条链中断。
+COLOR_HEX = {
+    "C-01": "#092f88", "C-02": "#1945a5", "C-03": "#13273d", "C-04": "#265aac",
+    "C-05": "#142c68", "C-06": "#0d435a", "C-07": "#69c2c6", "C-08": "#358ec4",
+    "C-09": "#81b79e", "C-10": "#48523c", "C-11": "#094036", "C-12": "#5a5e35",
+    "C-13": "#15483d", "C-14": "#11332b", "C-15": "#66211b", "C-16": "#80221d",
+    "C-17": "#3a1117", "C-18": "#83372c", "C-19": "#862b3e", "C-20": "#932250",
+    "C-21": "#de7973", "C-22": "#ab7780", "C-23": "#8069a5", "C-24": "#2e1a47",
+    "C-25": "#9c3509", "C-26": "#9f411d", "C-27": "#eecf87", "C-28": "#9d6d20",
+    "C-29": "#774326", "C-30": "#d2cbbd", "C-31": "#2f3942", "C-32": "#322f2b",
+    "C-33": "#544839", "C-34": "#d6cdc1", "C-35": "#5e5d5b", "C-36": "#6d5b4a",
+}
+
 def local_path(repo_path):
     return os.path.join(OUT, repo_path)
 
@@ -80,6 +95,8 @@ def main():
     STYLES = parse(styles_md, "images/individual/", r"[A-Z]{2}-\d{3}")
     LAYOUTS = parse(layouts_md, "images/layouts/", r"[A-Z]{2}-\d{3}")
     COLORS = parse(colors_md, "images/colors/", r"C-\d{2}")
+    for _c in COLORS:
+        _c["hex"] = COLOR_HEX.get(_c["id"], "#c7d2fe")
     print("parsed: styles=%d layouts=%d colors=%d" % (len(STYLES), len(LAYOUTS), len(COLORS)))
 
     imgs = [s["img"][len("assets/"):] for s in STYLES] + \

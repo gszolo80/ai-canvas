@@ -29,6 +29,8 @@
   let palTarget = "color"; // 常用色板当前作用目标：color / strokeColor / glowColor
   let uidCounter = 1;
   const uid = () => "L" + (uidCounter++);
+  // 配色兜底：老存档 / 自建配色可能没有 hex，别让 addColorStop(undefined) 把生成链整条打断
+  const colorHex = (c) => (c && c.hex) || "#c7d2fe";
 
   // 文字字号层级（命名角色）：主标题 / 副标题 / 正文 / 署名
   // rel = 相对画布宽度的字号比例；一幅图建议只用这 3–4 种，保持版面统一
@@ -444,7 +446,7 @@
       if (!c) return;
       state.current.color = c;
       state.layers = state.layers.filter((l) => l.type !== "color");
-      state.layers.unshift({ id: uid(), type: "color", color: c.hex, name: "底色 " + c.id });
+      state.layers.unshift({ id: uid(), type: "color", color: colorHex(c), name: "底色 " + c.id });
       emptyState.style.display = state.layers.length ? "none" : "";
       refreshLayers(); render();
       toast("已铺底色：" + c.name);
@@ -491,8 +493,8 @@
     }
     if (tab === "color") {
       return `<div class="card color-card" draggable="true" data-tab="color" data-id="${item.id}">
-        <div class="swatch" style="background:${item.hex}"></div>
-        <div class="meta"><span class="nm">${item.name}</span><span class="hx">${item.hex}</span></div>
+        <div class="swatch" style="background:${colorHex(item)}"></div>
+        <div class="meta"><span class="nm">${item.name}</span><span class="hx">${colorHex(item)}</span></div>
         <div class="grab">拖我 →</div>
       </div>`;
     }
@@ -1020,7 +1022,7 @@
     const prompt = promptOut.value.trim();
     if (!prompt) { toast("先选素材或写点内容再生成"); return; }
     if (state.settings.mode === "demo") {
-      const color = state.current.color ? state.current.color.hex : "#c7d2fe";
+      const color = colorHex(state.current.color);
       const dataUrl = makeDemoImage(prompt, color);
       addLayer({ type: "image", src: dataUrl, x: canvas.width * 0.12, y: canvas.height * 0.12, w: canvas.width * 0.76, h: canvas.height * 0.76, name: "生成底图(演示)" });
       notifyGenerated(dataUrl, "生成底图(演示)");
@@ -1060,7 +1062,8 @@
     off.width = r.w; off.height = r.h;
     const c = off.getContext("2d");
     const g = c.createLinearGradient(0, 0, r.w, r.h);
-    g.addColorStop(0, color); g.addColorStop(1, "#ffffff");
+    const safeColor = /^#[0-9a-fA-F]{6}$/.test(color) ? color : "#c7d2fe";
+    g.addColorStop(0, safeColor); g.addColorStop(1, "#ffffff");
     c.fillStyle = g; c.fillRect(0, 0, r.w, r.h);
     c.fillStyle = "rgba(0,0,0,.55)";
     c.font = `bold ${Math.round(r.w * 0.06)}px "Noto Sans SC", sans-serif`;
@@ -1093,7 +1096,7 @@
       size: (() => { const s = sizeSpec(); return { w: s.w, h: s.h, ratio: s.ratio, orient: s.orient }; })(),
       style: state.current.style ? { id: state.current.style.id, prompt: state.current.style.prompt } : null,
       layout: state.current.layout ? { id: state.current.layout.id, prompt: state.current.layout.prompt } : null,
-      color: state.current.color ? { id: state.current.color.id, name: state.current.color.name, hex: state.current.color.hex } : null,
+      color: state.current.color ? { id: state.current.color.id, name: state.current.color.name, hex: colorHex(state.current.color) } : null,
       font: state.current.font ? state.current.font.name : null,
       character: state.current.character ? state.current.character.name : null,
       subject: $("#inpSubject").value.trim(),
@@ -1113,7 +1116,7 @@
     md += `- 比例：${r.ratio}\n`;
     if (r.style) md += `- 风格：${r.style.id} — ${r.style.prompt}\n`;
     if (r.layout) md += `- 排版：${r.layout.id} — ${r.layout.prompt}\n`;
-    if (r.color) md += `- 配色：${r.color.name}（${r.color.hex}）\n`;
+    if (r.color) md += `- 配色：${r.color.name}（${r.color.hex || "#c7d2fe"}）\n`;
     if (r.font) md += `- 字体：${r.font}\n`;
     if (r.character) md += `- 主角：${r.character}\n`;
     md += `- 主体：${r.subject || "（无）"}\n`;
