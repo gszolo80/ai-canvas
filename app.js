@@ -687,9 +687,9 @@
       const hasMore = !q && !favOnly && filtered.length > lim;
       const tools = isStyle ? `<button class="mini-btn" id="btnNewStyle">＋ 自定义风格</button>` : "";
       const chips = catList.map((c) => `<button class="cat ${c === cur ? "active" : ""}" data-cat="${c}">${c}${c === "全部" ? "" : " ·" + (counts[c] || 0)}</button>`).join("");
-      const meta = `<div class="lib-meta">共 ${filtered.length} 项${cur !== "全部" ? " · 已筛选「" + cur + "」" : ""}${q ? ' · 搜索「' + esc(assetQuery.trim()) + '」' : ""}${favOnly ? " · 只看收藏" : ""}</div>`;
+      const meta = `<div class="lib-meta"><span class="lib-meta-text">共 ${filtered.length} 项${cur !== "全部" ? " · 已筛选「" + cur + "」" : ""}${q ? ' · 搜索「' + esc(assetQuery.trim()) + '」' : ""}${favOnly ? " · 只看收藏" : ""}</span><button class="meta-all" id="btnMetaBrowse" type="button" data-type="${tab}" title="查看全部${tab === "color" ? "配色" : "图片"}">▦ 全部</button></div>`;
       const filter = `<div class="filter-block${catCollapsed ? " collapsed" : ""}" id="catFilter">
-        <div class="filter-title" id="catToggle"><span class="ft-label">分类筛选</span><span class="collapse-arrow">▾</span></div>
+        <div class="filter-title" id="catToggle"><span class="ft-label">分类筛选</span><button type="button" class="collapse-btn" id="catCollapseBtn" title="折叠 / 展开分类"><span class="collapse-arrow">▾</span></button></div>
         <div class="catbar" id="catbar">${chips}</div>
       </div>`;
       tabBody.innerHTML = `<div class="tab-tools">${tools}</div>${filter}${meta}` +
@@ -697,7 +697,7 @@
         (hasMore ? `<div class="loadmore"><button class="mini-btn" id="btnLoadMore">加载更多（还剩 ${filtered.length - lim} 张）</button></div>` : "");
     } else if (tab === "color") {
       const list = COLORS.filter((it) => assetMatches(it, "color", q));
-      tabBody.innerHTML = `<div class="lib-meta">共 ${list.length} 项${q ? ' · 搜索「' + esc(assetQuery.trim()) + '」' : ""}${favOnly ? " · 只看收藏" : ""}</div>` +
+      tabBody.innerHTML = `<div class="lib-meta"><span class="lib-meta-text">共 ${list.length} 项${q ? ' · 搜索「' + esc(assetQuery.trim()) + '」' : ""}${favOnly ? " · 只看收藏" : ""}</span><button class="meta-all" id="btnMetaBrowse" type="button" data-type="color" title="查看全部配色">▦ 全部</button></div>` +
         (list.length ? `<div class="grid${viewMode === "list" ? " list-view" : ""}">${list.map((it) => cardHTML("color", it)).join("")}</div>` : emptyResult());
     } else if (tab === "font") {
       renderFonts();
@@ -723,7 +723,7 @@
         ${browseBtn}
         <div class="upload-pad" id="minePad">🖼 上传图片<br><small>（照片 / logo / 素材，拖进画布自由组合）</small></div>
         <div class="thumb-row" id="mineRow">${rows || '<div class="layer-empty">还没有上传图片</div>'}</div>`;
-      const bba = $("#btnBrowseAll"); if (bba) bba.onclick = openImagePicker;
+      const bba = $("#btnBrowseAll"); if (bba) bba.onclick = () => openImagePicker("mine");
       $("#minePad").onclick = () => pickFiles("mine");
       bindThumbRow();
     }
@@ -781,6 +781,7 @@
       if (fb) fb.classList.toggle("collapsed", catCollapsed);
     };
     const bns = $("#btnNewStyle"); if (bns) bns.onclick = () => openSettings("custom");
+    const mab = $("#btnMetaBrowse"); if (mab) mab.onclick = () => openImagePicker(mab.dataset.type);
     const lm = $("#btnLoadMore"); if (lm) lm.onclick = () => { gridLimit += 60; renderTab(tab); tabBody.scrollTop = tabBody.scrollHeight; };
     // 自定义字体删除
     tabBody.querySelectorAll(".cust-del").forEach((b) => {
@@ -1605,25 +1606,36 @@
   function closeVariants() { const m = $("#variantMask"); if (m) m.hidden = true; }
 
   // ---------- 图片选择弹窗：展示全部图片做选择 ----------
-  function openImagePicker() {
-    const mask = $("#imgPickerMask"), grid = $("#imgPickerGrid");
+  function openImagePicker(type) {
+    const mask = $("#imgPickerMask"), grid = $("#imgPickerGrid"), hint = $("#imgPickerHint"), head = $("#imgPickerHead");
     if (!mask || !grid) return;
-    const imgs = [];
-    (state.mine || []).forEach((m) => imgs.push({ tab: "mine", id: m.id, src: m.src, name: m.name || "图片" }));
-    (state.characters || []).forEach((c) => imgs.push({ tab: "character", id: c.id, src: c.src, name: c.name || "角色", isChar: true }));
-    if (!imgs.length) {
-      grid.innerHTML = `<div class="layer-empty" style="padding:26px 4px;grid-column:1/-1">还没有图片，先上传图片或角色图吧（左侧「上传图片 / 角色图」）。</div>`;
+    let items = [], title = "选择图片", hintText = "点任意一张图片即可加入画布；角色图会同时锁定为主角。";
+    if (type === "style") {
+      items = allStyles().map((it) => ({ tab: "style", id: it.id, src: it.img, name: it.name || it.id }));
+      title = "全部风格"; hintText = "点任意一张风格即可加入画布。";
+    } else if (type === "layout") {
+      items = LAYOUTS.map((it) => ({ tab: "layout", id: it.id, src: it.img, name: it.name || it.id }));
+      title = "全部排版"; hintText = "点任意一张排版即可加入画布。";
+    } else if (type === "color") {
+      items = COLORS.map((it) => ({ tab: "color", id: it.id, color: colorHex(it), name: it.name }));
+      title = "全部配色"; hintText = "点任意一块配色即可加入画布。";
     } else {
-      grid.innerHTML = imgs.map((it) => `<div class="ip-item" data-tab="${it.tab}" data-id="${esc(it.id)}" title="${esc(it.name)} · 点击加入画布">
-        <img src="${it.src}" alt="${esc(it.name)}"/>
-        ${it.isChar ? '<div class="ip-badge">角色</div>' : ""}
-        <div class="ip-name">${esc(it.name)}</div>
-      </div>`).join("");
+      (state.mine || []).forEach((m) => items.push({ tab: "mine", id: m.id, src: m.src, name: m.name || "图片" }));
+      (state.characters || []).forEach((c) => items.push({ tab: "character", id: c.id, src: c.src, name: c.name || "角色", isChar: true }));
+      title = "选择图片"; hintText = "点任意一张图片即可加入画布；角色图会同时锁定为主角。";
+    }
+    if (head) head.textContent = "🖼 " + title;
+    if (hint) hint.textContent = hintText;
+    if (!items.length) {
+      grid.innerHTML = `<div class="layer-empty" style="padding:26px 4px;grid-column:1/-1">${type === "color" ? "还没有配色" : "还没有图片，先上传图片或角色图吧（左侧「上传图片 / 角色图」）。"}</div>`;
+    } else {
+      grid.innerHTML = items.map((it) => {
+        if (it.color) return `<div class="ip-item ip-color" data-tab="color" data-id="${esc(it.id)}" title="${esc(it.name)} · 点击加入画布"><div class="ip-swatch" style="background:${it.color}"></div><div class="ip-name">${esc(it.name)}</div></div>`;
+        const img = it.src ? `<img src="${it.src}" alt="${esc(it.name)}" onerror="this.style.display='none'"/>` : `<div class="ip-ph">${esc(it.name)}</div>`;
+        return `<div class="ip-item" data-tab="${esc(it.tab)}" data-id="${esc(it.id)}" title="${esc(it.name)} · 点击加入画布">${img}${it.isChar ? '<div class="ip-badge">角色</div>' : ""}<div class="ip-name">${esc(it.name)}</div></div>`;
+      }).join("");
       grid.querySelectorAll(".ip-item").forEach((el) => {
-        el.onclick = () => {
-          addFromCard(el.dataset.tab, el.dataset.id, null);
-          closeImagePicker();
-        };
+        el.onclick = () => { addFromCard(el.dataset.tab, el.dataset.id, null); closeImagePicker(); };
       });
     }
     mask.hidden = false;
