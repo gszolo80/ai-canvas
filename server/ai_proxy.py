@@ -224,8 +224,12 @@ def png_chunk(tag, data):
     return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
 
 
-def make_mock_png(width, height, roles):
-    """自检图：浅底 + 顶部标题条 + 每个收到的参考图一个色块。不含文字，纯像素可核对。"""
+def make_mock_png(width, height, roles, variant=0, total=1):
+    """自检图：浅底 + 顶部标题条 + 每个收到的参考图一个色块。不含文字，纯像素可核对。
+
+    total > 1 时在底部画 total 个小方块，第 variant 个是深色 —— 多张变体并排时
+    能一眼区分，也让「代理确实按 n 生成了多张」这件事有可核对的像素证据。
+    """
     bg = (238, 242, 255)
     bar = (49, 62, 110)
     white = (255, 255, 255)
@@ -235,11 +239,20 @@ def make_mock_png(width, height, roles):
     block_w = max(4, (width - pad * (n + 1)) // n)
     y0 = hbar + (height - hbar) // 3
     y1 = min(height - pad, y0 + max(12, (height - hbar) // 3))
+    marker_h = max(3, height // 70)
+    marker_w = max(4, width // 24)
+    y2 = max(y1, height - pad - marker_h)
 
     rows = []
     for y in range(height):
         base = bar if y < hbar else bg
         line = bytearray(bytes(base) * width)
+        if total > 1 and y2 <= y < y2 + marker_h:
+            for i in range(total):
+                x0 = pad + i * (marker_w + max(2, pad // 4))
+                x1 = min(width, x0 + marker_w)
+                if x1 > x0:
+                    line[x0 * 3:x1 * 3] = bytes(bar if i == variant else (203, 209, 228)) * (x1 - x0)
         if y0 <= y < y1:
             for i, role in enumerate(roles):
                 x0 = pad + i * (block_w + pad)
@@ -288,6 +301,8 @@ def base_meta(payload, refs):
         "ref_bytes": [{"role": r["role"], "name": r["name"], "size": r["size"]} for r in refs],
         "prompt_chars": len(str(payload.get("prompt") or "")),
         "size": str(payload.get("size") or ""),
+        "n": max(1, min(4, int(payload.get("n") or 1))),
+        "seed": int((payload.get("options") or {}).get("seed") or 0),
         "refs_used": [],
         "refs_dropped": [r["role"] for r in refs],
         "note": "",
@@ -300,14 +315,17 @@ def upstream_mock(payload, cfg, refs, meta):
     # 自检图固定较小尺寸，避免大画幅时逐行拼像素太慢
     w, h = min(w, 768), min(h, 768)
     roles = [r["role"] for r in refs] or []
-    png = make_mock_png(w, h, roles)
+    count = max(1, min(4, int(payload.get("n") or 1)))
+    base_seed = int((payload.get("options") or {}).get("seed") or 0)
+    images = [to_data_url("image/png", make_mock_png(w, h, roles, i, count)) for i in range(count)]
     meta["refs_used"] = roles
     meta["refs_dropped"] = []
     meta["simulated"] = True
+    meta["variants"] = [{"index": i + 1, "seed": (base_seed + i * 7919) % (2 ** 31)} for i in range(count)]
     meta["note"] = ("mock 上游不是真出图：它只验证『参考图确实送到了服务端』。"
-                    "顶部深蓝条 = 收到请求，%d 个色块 = 收到 %d 张参考图。切到 cloud / comfy 才会真生成。"
-                    % (len(roles), len(roles)))
-    return [to_data_url("image/png", png)], meta
+                    "顶部深蓝条 = 收到请求，%d 个色块 = 收到 %d 张参考图，底部方块标出第几张变体。"
+                    "切到 cloud / comfy 才会真生成。" % (len(roles), len(roles)))
+    return images, meta
 
 
 # ---------------------------------------------------------------- 上游：cloud
@@ -539,6 +557,33 @@ def upstream_comfy(payload, cfg, refs, meta):
     return images, meta
 
 
+def upstream_comfy_multi(payload, cfg, refs, meta, count):
+    """ComfyUI 一次只出一个 batch；要 n 张不同变体就按不同 seed 提交 n 次再汇总。
+
+    每次都重新上传参考图（慢一点但每张都真的吃了图），meta 里逐张记录 prompt_id。
+    """
+    if count <= 1:
+        return upstream_comfy(payload, cfg, refs, meta)
+    base_seed = int((payload.get("options") or {}).get("seed") or time.time())
+    images, ids, seeds = [], [], []
+    last = {}
+    for i in range(count):
+        p2 = dict(payload)
+        o2 = dict(payload.get("options") or {})
+        o2["seed"] = (base_seed + i * 7919) % (2 ** 31)
+        p2["options"] = o2
+        imgs, last = upstream_comfy(p2, cfg, refs, dict(meta))
+        images.extend(imgs)
+        seeds.append(o2["seed"])
+        ids.append(last.get("comfy_prompt_id") or "")
+    for k in ("refs_used", "refs_dropped", "note", "comfy_size"):
+        if k in last:
+            meta[k] = last[k]
+    meta["comfy_prompt_ids"] = ids
+    meta["variants"] = [{"index": i + 1, "seed": s} for i, s in enumerate(seeds)]
+    return images, meta
+
+
 # ---------------------------------------------------------------- Handler
 class Handler(BaseHTTPRequestHandler):
     server_version = "AICanvasProxy/" + VERSION
@@ -613,6 +658,9 @@ class Handler(BaseHTTPRequestHandler):
             if not prompt:
                 raise ProxyError("prompt 不能为空", "bad_request", 400)
 
+            # 一次出图张数：1..4，网页端与三个上游统一按这个值走
+            count = max(1, min(4, int(payload.get("n") or 1)))
+            payload["n"] = count
             refs = normalize_refs(payload, cfg)
             upstream = str(payload.get("upstream") or cfg["upstream"]).lower()
             if upstream != cfg["upstream"] and not cfg.get("allow_upstream_override", True):
@@ -630,10 +678,14 @@ class Handler(BaseHTTPRequestHandler):
             elif upstream == "cloud":
                 images, meta = upstream_cloud(payload, cfg["cloud"], refs, meta)
             else:
-                images, meta = upstream_comfy(payload, cfg["comfy"], refs, meta)
+                images, meta = upstream_comfy_multi(payload, cfg["comfy"], refs, meta, count)
 
             if not images:
                 raise ProxyError("上游没返回任何图片", "upstream_error", 502)
+            if len(images) < count:
+                meta["note"] = ((meta.get("note") or "") +
+                                " 上游只返回 %d/%d 张（n=%d 未被完整支持），已按实际张数展示，不复制充数。"
+                                % (len(images), count, count))
             meta["elapsed_ms"] = int((time.time() - t0) * 1000)
             self._send(200, {"ok": True, "images": images, "meta": meta})
             log("done images=%d used=%s dropped=%s %dms" % (

@@ -185,7 +185,10 @@ function findChrome() {
       export: !!document.querySelector('#btnExportPng'),
     };
   });
-  check('编辑回归：画布有内容 / 图层 / 提示词尺寸 / 导出', s9.layers >= 1 && s9.promptSize.includes('1024×1366') && s9.nonWhite > 50 && s9.export, s9);
+  // 提示词【尺寸】已改为只给比例（图像模型不认像素），像素仍留在配方/画幅里
+  check('编辑回归：画布有内容 / 图层 / 提示词尺寸 / 导出',
+    s9.layers >= 1 && s9.promptSize.includes('3:4') && !s9.promptSize.includes('px')
+    && s9.nonWhite > 50 && s9.export, s9);
 
   await page.click('.tab[data-tab="font"]');
   await sleep(400);

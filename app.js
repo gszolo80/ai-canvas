@@ -18,7 +18,7 @@
     styleCat: "全部",
     layoutCat: "全部",
     settings: {
-      mode: "demo", base: "", key: "", model: "",
+      mode: "demo", base: "", key: "", model: "", batchN: 1,
       upload: { maxEdge: 2048, quality: 0.85, format: "keep" },
       prompt: { lang: "cn", includeFont: true, includeChar: true, anchor: "", suffix: "" },
       customStyles: [],
@@ -37,6 +37,22 @@
     refs: { style: true, layout: true, color: true, character: false, canvas: false },
     strength: 0.65, negative: "", customRefs: [],
   };
+  // 场景模板：只套「选中状态 + 画幅 + 文案」，不往画布堆图层。素材 id 必须真实存在。
+  const SCENE_TEMPLATES = [
+    { id: "xhs", name: "小红书封面", style: "FA-001", layout: "SC-001", color: "C-01", ratioIdx: 0,
+      subject: "一只橘猫", content: "周末午后，窗边晒太阳，暖光" },
+    { id: "wechat", name: "公众号头图", style: "FH-001", layout: "IP-001", color: "C-15", ratioIdx: 2,
+      subject: "山间茶室", content: "一期一会 · 慢下来的一下午" },
+    { id: "shop", name: "电商主图", style: "FB-001", layout: "EC-001", color: "C-09", ratioIdx: 1,
+      subject: "一只陶瓷马克杯", content: "奶油白釉面，柔光棚拍，干净背景" },
+    { id: "info", name: "信息图", style: "FI-001", layout: "IG-001", color: "C-03", ratioIdx: 4,
+      subject: "一周时间管理", content: "三步拆解：记录 / 归类 / 复盘" },
+    { id: "wallpaper", name: "手机壁纸", style: "FB-004", layout: "SC-002", color: "C-20", ratioIdx: 3,
+      subject: "雨后的城市街角", content: "今天也要开心" },
+    { id: "comic", name: "四格漫画", style: "FA-004", layout: "SB-002", color: "C-16", ratioIdx: 1,
+      subject: "上班第一天的打工人", content: "起承转合，冷幽默，最后一格反转" },
+  ];
+  const batchN = () => Math.max(1, Math.min(4, Number(state.settings.batchN) || 1));
   const imgCache = {}; // src -> HTMLImageElement
   const imgFailed = new Set(); // 加载失败的图片地址
   let palTarget = "color"; // 常用色板当前作用目标：color / strokeColor / glowColor
@@ -995,21 +1011,33 @@
     const p = state.settings.prompt;
     const parts = [];
     if (p.anchor.trim()) parts.push(p.anchor.trim());
-    // 【尺寸】必须始终在提示词里：出图模型按这个画幅生成，否则比例会跑偏
+    // 【尺寸】必须始终在提示词里，但只给比例：图像模型不按像素出图，
+    // "1024×1366 px" 这类字样对生成无用还可能被当成画面里的文字。像素只留在配方/画布设置里。
     const sp = sizeSpec();
-    parts.push("【尺寸】" + sp.w + "×" + sp.h + " px，比例 " + sp.ratio + "，" + sp.orient);
+    parts.push("【尺寸】比例 " + sp.ratio + "，" + sp.orient + "（画幅由画布设置控制）");
     if (c.style) parts.push("【风格】" + c.style.prompt);
     if (c.layout) parts.push("【排版】" + c.layout.prompt);
     if (c.color) parts.push("【配色】" + c.color.prompt);
     if (c.font && p.includeFont) {
       const roles = Array.from(new Set(state.layers.filter((l) => l.type === "text" && l.role).map((l) => l.role)));
-      parts.push("【字体】文字使用「" + c.font.name + "」真实字体清晰渲染（字号层级：" + (roles.length ? roles.join("/") : "正文") + "），避免中文乱码");
+      // 图像模型不会真实渲染字体、更保证不了中文正确；中文字一律后期在画布叠文字层。
+      parts.push("【字体】标题区留白，不要在画面里生成文字；中文文案后期用「" + c.font.name
+        + "」叠加（字号层级：" + (roles.length ? roles.join("/") : "正文") + "）");
     }
     if (c.character && p.includeChar) parts.push("【角色一致性】保持与参考图同一人物（脸型/发式/五官特征一致），固定身份描述，会话内锁定种子");
     const subj = $("#inpSubject").value.trim();
     const cont = $("#inpContent").value.trim();
     if (subj) parts.push("【主体】" + subj);
     if (cont) parts.push(cont);
+    // ③ 反向提示词原来只发给代理、提示词里看不见，这里明示出来可核对
+    const neg = String((state.settings.proxy && state.settings.proxy.negative) || "").trim();
+    if (neg) parts.push("【排除】" + neg);
+    // ④ 参考图条数明示：只有本地代理模式且确实勾选了图才写，其余模式不误导
+    if (state.settings.mode === "proxy") {
+      const picked = refCandidates().filter((x) => x.enabled).slice(0, 4);
+      if (picked.length) parts.push("【参考图】本次随图发送 " + picked.length + " 张（"
+        + picked.map((x) => x.roleLabel).join("、") + "），请据此锁定风格与构图；画面里不要生成额外文字水印");
+    }
     if (p.suffix.trim()) parts.push(p.suffix.trim());
     let head = "";
     if (p.lang === "en") head = "Generate an image with the following specifications:\n";
@@ -1029,6 +1057,7 @@
     chipsEl.querySelectorAll(".chip[data-clear]").forEach((el) => {
       el.onclick = () => clearCurrent(el.dataset.clear);
     });
+    renderRefBoard();   // 素材变了，参考图确认板立刻同步
   }
   function chip(label, val, key) {
     return `<span class="chip">${label}：${val} <b data-clear="${key}" style="cursor:pointer;margin-left:4px">×</b></span>`;
@@ -1219,22 +1248,75 @@
     }
   }
 
-  async function collectRefs() {
+  // ---------- 参考图确认板 ----------
+  // 「看到的」和「发出去的」必须是同一份清单：确认板与 collectRefs 共用 refCandidates()，
+  // 勾选状态直接写回 settings，绝不出现板子上勾了却没发、或发了却看不见的情况。
+  const CANVAS_REF = "__canvas_snapshot__";
+  function refCandidates() {
     const p = state.settings.proxy || PROXY_DEFAULT;
-    const r = p.refs || PROXY_DEFAULT.refs;
-    const jobs = [];
-    const push = (role, name, src) => { if (src) jobs.push({ role, name, src }); };
-    if (r.style && state.current.style) push("style", state.current.style.name || state.current.style.id, state.current.style.img);
-    if (r.layout && state.current.layout) push("layout", state.current.layout.name || state.current.layout.id, state.current.layout.img);
-    if (r.color && state.current.color) push("color", state.current.color.name || state.current.color.id, state.current.color.img);
-    if (r.character && state.current.character) push("character", state.current.character.name || "主角", state.current.character.src);
-    if (r.canvas && state.layers.length) push("canvas", "当前画布", snapshot());
-    (p.customRefs || []).forEach((x) => push("custom", x.name || "补充参考图", x.src));
+    const r = Object.assign({}, PROXY_DEFAULT.refs, p.refs || {});
+    const out = [];
+    const add = (key, roleLabel, name, src, enabled, customId) => {
+      if (!src) return;
+      out.push({ key, role: key, roleLabel, name, src, enabled: !!enabled, customId: customId || "" });
+    };
+    // 风格/排版名多是长英文，板子上用短编号更好认（配色名本来就短）
+    add("style", "风格图", (state.current.style && state.current.style.id) || "风格图",
+      state.current.style && state.current.style.img, r.style);
+    add("layout", "排版图", (state.current.layout && state.current.layout.id) || "排版图",
+      state.current.layout && state.current.layout.img, r.layout);
+    add("color", "配色图", (state.current.color && (state.current.color.name || state.current.color.id)) || "配色图",
+      state.current.color && state.current.color.img, r.color);
+    add("character", "主角图", (state.current.character && (state.current.character.name || "主角")) || "主角图",
+      state.current.character && state.current.character.src, r.character);
+    add("canvas", "画布快照", "当前画布", state.layers.length ? CANVAS_REF : null, r.canvas);
+    (p.customRefs || []).forEach((x) => {
+      add("custom", "补充图", x.name || "补充参考图", x.src, x.enabled !== false, x.id);
+    });
+    return out;
+  }
+  function refThumbSrc(x) { return x.src === CANVAS_REF ? (snapshot() || "") : x.src; }
+  function renderRefBoard() {
+    const el = $("#refBoard"); if (!el) return;
+    const list = refCandidates();
+    const enabled = list.filter((x) => x.enabled).slice(0, 4);
+    const cnt = $("#refBoardCount"), hint = $("#refBoardHint");
+    if (cnt) cnt.textContent = enabled.length + " / 4";
+    const m = state.settings.mode;
+    if (hint) hint.textContent = m === "proxy"
+      ? "已勾 " + enabled.length + " 张 · 将随请求发给模型（上限 4 张）"
+      : "仅本地代理模式发送 · 当前不会发送";
+    el.innerHTML = list.length
+      ? list.map((x, i) => `<label class="rb-item ${x.enabled ? "on" : "off"}" title="${esc(x.roleLabel)} · ${esc(x.name)}">
+          <input type="checkbox" data-rb="${i}" ${x.enabled ? "checked" : ""} />
+          ${x.src === CANVAS_REF ? '<span class="rb-canvas-ico">🖼</span>' : `<img src="${esc(x.src)}" alt="" />`}
+          <span class="rb-txt"><b>${esc(x.roleLabel)}</b><span>${esc(String(x.name).slice(0, 10))}</span></span>
+        </label>`).join("")
+      : `<div class="rb-empty">先选风格 / 排版 / 配色，这里会显示即将发送的参考图。</div>`;
+    el.querySelectorAll("input[data-rb]").forEach((cb) => {
+      cb.onchange = () => {
+        const x = list[+cb.dataset.rb];
+        if (!x) return;
+        const p = state.settings.proxy;
+        if (!p.refs) p.refs = Object.assign({}, PROXY_DEFAULT.refs);
+        if (x.key === "custom") {
+          const f = (p.customRefs || []).find((y) => y.id === x.customId);
+          if (f) f.enabled = cb.checked;
+        } else p.refs[x.key] = cb.checked;
+        persistSettings();
+        // 设置中心里的复选框与确认板同步
+        const inSet = $("#setRefSrcs") && $("#setRefSrcs").querySelector('input[data-ref="' + x.key + '"]');
+        if (inSet) inSet.checked = cb.checked;
+        renderRefBoard(); buildPrompt();
+      };
+    });
+  }
+  async function collectRefs() {
+    const jobs = refCandidates().filter((x) => x.enabled).slice(0, 4);
     const out = [];
     for (const j of jobs) {
-      if (out.length >= 4) break;
       try {
-        const dataUrl = await refToDataUrl(j.src);
+        const dataUrl = await refToDataUrl(refThumbSrc(j));
         if (dataUrl) out.push({ role: j.role, name: j.name, dataUrl });
       } catch (e) { console.warn("[proxy] 参考图跳过", j.role, j.name, e.message); }
     }
@@ -1256,9 +1338,14 @@
     const refs = await collectRefs();
     toast("正在生成（参考图 " + refs.length + " 张）…");
     const d = curDims();
+    const n = batchN();
     const body = {
-      prompt, size: d.w + "x" + d.h, n: 1, refs,
-      options: { strength: +p.strength || 0.65, negative: p.negative || "" },
+      prompt, size: d.w + "x" + d.h, n, refs,
+      options: {
+        strength: +p.strength || 0.65,
+        negative: p.negative || "",
+        seed: (Date.now() % 100000) + 1,   // 代理按 seed+i 给每张变体不同种子
+      },
     };
     if (p.upstream) body.upstream = p.upstream;
     const res = await fetch(base + "/v1/generate", {
@@ -1267,21 +1354,21 @@
     });
     const j = await res.json();
     if (!res.ok || !j.ok) throw new Error((j.error && j.error.message) || ("HTTP " + res.status));
-    const imgUrl = j.images && j.images[0];
-    if (!imgUrl) throw new Error("代理没返回图片");
-    addLayer({
-      type: "image", src: imgUrl,
-      x: canvas.width * 0.12, y: canvas.height * 0.12,
-      w: canvas.width * 0.76, h: canvas.height * 0.76,
-      name: "生成底图(代理)",
-    });
-    notifyGenerated(imgUrl, "生成底图(代理)");
+    const imgs = Array.isArray(j.images) ? j.images.filter(Boolean).slice(0, 4) : [];
+    if (!imgs.length) throw new Error("代理没返回图片");
     const m = j.meta || {};
     const used = (m.refs_used || []).length;
     const dropped = (m.refs_dropped || []).length;
-    if (dropped) toast("已生成 · 注意：" + dropped + " 张参考图未进模型（" + (m.note || "上游不支持带图") + "）");
-    else toast("已生成 · " + used + " 张参考图已进模型" + (m.simulated ? "（自检模拟图）" : ""));
+    const msg = dropped
+      ? "已生成 · 注意：" + dropped + " 张参考图未进模型（" + (m.note || "上游不支持带图") + "）"
+      : "已生成 · " + used + " 张参考图已进模型" + (m.simulated ? "（自检模拟图）" : "");
     if (m.note) console.info("[proxy] " + m.note);
+    if (n === 1) {
+      addGenerated(imgs[0], "生成底图(代理)");
+      toast(msg);
+    } else if (!showVariants(imgs, "生成底图(代理)", msg)) {
+      addGenerated(imgs[0], "生成底图(代理)"); toast(msg);
+    } else toast("已生成 " + imgs.length + " 张变体，挑一张入画布 · " + used + " 张参考图已进模型");
   }
 
   async function testProxyHealth() {
@@ -1310,7 +1397,7 @@
     el.querySelectorAll(".ref-del").forEach((b) => {
       b.onclick = () => {
         state.settings.proxy.customRefs = state.settings.proxy.customRefs.filter((x) => x.id !== b.dataset.id);
-        persistSettings(); renderRefPreview();
+        persistSettings(); renderRefPreview(); renderRefBoard();
       };
     });
   }
@@ -1330,7 +1417,7 @@
     }
     while (p.customRefs.length > 4) p.customRefs.shift();
     try { persistSettings(); } catch (e) { toast("本机存储空间不足，请少放几张参考图"); }
-    renderRefPreview();
+    renderRefPreview(); renderRefBoard();
   }
 
   // ---------- 出图后端状态灯 ----------
@@ -1363,6 +1450,7 @@
     el.className = "bk-status " + cls;
     el.textContent = txt;
     el.title = tip;
+    renderRefBoard();   // 模式变了，确认板的「会不会真的发送」提示同步
   }
   function onBackendStatusClick() {
     if (state.settings.mode === "openai") { openSettings("backend"); return; }
@@ -1377,6 +1465,7 @@
         toast("已切换到本地代理 · 出真图");
       } else toast("本地代理正常");
       refreshBackendStatus();
+      buildPrompt();      // 提示词里的【参考图】条数随模式变
     });
   }
 
@@ -1450,6 +1539,7 @@
         toast("代理未启动，先出演示占位图；双击「启动出图代理.command」出真图");
       }
     }
+    buildPrompt(true);   // 若上面自动切到代理，把【参考图】条数补进提示词
     await generate();
   }
 
@@ -1484,16 +1574,56 @@
   }
 
   // ---------- 出图 ----------
+  // ---------- 多张变体并排选优 ----------
+  function addGenerated(src, label) {
+    addLayer({
+      type: "image", src,
+      x: canvas.width * 0.12, y: canvas.height * 0.12,
+      w: canvas.width * 0.76, h: canvas.height * 0.76,
+      name: label,
+    });
+    notifyGenerated(src, label);
+  }
+  function closeVariants() { const m = $("#variantMask"); if (m) m.hidden = true; }
+  function showVariants(list, label, hint) {
+    const mask = $("#variantMask"), grid = $("#variantGrid");
+    if (!mask || !grid) return false;
+    const imgs = (list || []).filter(Boolean).slice(0, 4);
+    if (!imgs.length) return false;
+    const h = $("#variantHint");
+    if (h) h.textContent = (hint ? hint + "。" : "") + "点任意一张入画布；未选中的不占图层，也不写入工作台。";
+    grid.innerHTML = imgs.map((src, i) => `<div class="variant-card" data-vi="${i}" title="选变体 ${i + 1}">
+      <img src="${esc(src)}" alt="变体 ${i + 1}" />
+      <div class="vc-label">变体 ${i + 1} / ${imgs.length}</div>
+      <div class="vc-pick">点这张入画布 →</div>
+    </div>`).join("");
+    grid.querySelectorAll(".variant-card").forEach((el) => {
+      el.onclick = () => {
+        const i = +el.dataset.vi;
+        addGenerated(imgs[i], label + " · 变体" + (i + 1));
+        mask.hidden = true;
+        toast("已选变体 " + (i + 1) + " 入画布");
+      };
+    });
+    mask.hidden = false;
+    return true;
+  }
+
   async function generate() {
     buildPrompt();
     const prompt = promptOut.value.trim();
     if (!prompt) { toast("先选素材或写点内容再生成"); return; }
+    const n = batchN();
     if (state.settings.mode === "demo") {
       const color = colorHex(state.current.color);
-      const dataUrl = makeDemoImage(prompt, color);
-      addLayer({ type: "image", src: dataUrl, x: canvas.width * 0.12, y: canvas.height * 0.12, w: canvas.width * 0.76, h: canvas.height * 0.76, name: "生成底图(演示)" });
-      notifyGenerated(dataUrl, "生成底图(演示)");
-      toast("演示底图已生成（填 API 出真图）");
+      const imgs = [];
+      for (let i = 0; i < n; i++) imgs.push(makeDemoImage(prompt, color, i, n));
+      if (n === 1) {
+        addGenerated(imgs[0], "生成底图(演示)");
+        toast("演示底图已生成（填 API 出真图）");
+      } else if (!showVariants(imgs, "生成底图(演示)", "演示模式 · 不同渐变方向的占位图")) {
+        addGenerated(imgs[0], "生成底图(演示)");
+      } else toast("已生成 " + imgs.length + " 张变体，挑一张入画布");
     } else if (state.settings.mode === "proxy") {
       try {
         await generateViaProxy(prompt);
@@ -1506,7 +1636,7 @@
         const url = (state.settings.base.replace(/\/+$/, "") + "/images/generations");
         const chars = state.current.character;
         const d = curDims();
-        const body = { model: state.settings.model || "gpt-image-1", prompt, n: 1, size: (d.w + "x" + d.h), response_format: "b64_json" };
+        const body = { model: state.settings.model || "gpt-image-1", prompt, n, size: (d.w + "x" + d.h), response_format: "b64_json" };
         const res = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: "Bearer " + state.settings.key },
@@ -1514,6 +1644,18 @@
         });
         const j = await res.json();
         if (!res.ok) throw new Error(j.error?.message || ("HTTP " + res.status));
+        if (n > 1) {
+          const imgs = (j.data || []).map((it) => it.b64_json
+            ? "data:image/png;base64," + it.b64_json : (it.url || null)).filter(Boolean).slice(0, 4);
+          if (imgs.length > 1) {
+            showVariants(imgs, "生成底图", "浏览器直连接口返回的变体");
+            toast("已生成 " + imgs.length + " 张变体，挑一张入画布");
+          } else if (imgs.length) {
+            imgCache[imgs[0]] = null; getImage(imgs[0], () => {});
+            addGenerated(imgs[0], "生成底图"); toast("接口只返回 1 张，已直接入画布");
+          } else throw new Error("接口未返回图片");
+          return;
+        }
         const item = (j.data && j.data[0]) || {};
         const imgUrl = item.b64_json ? "data:image/png;base64," + item.b64_json : (item.url || null);
         if (!imgUrl) throw new Error("接口未返回图片");
@@ -1529,19 +1671,21 @@
     }
   }
 
-  function makeDemoImage(prompt, color) {
+  function makeDemoImage(prompt, color, variant, total) {
+    const v = variant || 0, t = total || 1;
     const r = curDims();
     const off = document.createElement("canvas");
     off.width = r.w; off.height = r.h;
     const c = off.getContext("2d");
-    const g = c.createLinearGradient(0, 0, r.w, r.h);
+    // 每张变体换一个渐变方向，方便并排时一眼区分
+    const g = c.createLinearGradient(0, v % 2 ? r.h : 0, v > 1 ? r.w : 0, v % 2 ? 0 : r.h);
     const safeColor = /^#[0-9a-fA-F]{6}$/.test(color) ? color : "#c7d2fe";
     g.addColorStop(0, safeColor); g.addColorStop(1, "#ffffff");
     c.fillStyle = g; c.fillRect(0, 0, r.w, r.h);
     c.fillStyle = "rgba(0,0,0,.55)";
     c.font = `bold ${Math.round(r.w * 0.06)}px "Noto Sans SC", sans-serif`;
     c.textAlign = "center";
-    c.fillText("演示底图", r.w / 2, r.h * 0.45);
+    c.fillText(t > 1 ? "演示底图 " + (v + 1) + "/" + t : "演示底图", r.w / 2, r.h * 0.45);
     c.font = `${Math.round(r.w * 0.028)}px "Noto Sans SC", sans-serif`;
     const lines = prompt.split("\n").slice(0, 4);
     lines.forEach((ln, i) => c.fillText(ln.slice(0, 28), r.w / 2, r.h * 0.55 + i * r.w * 0.04));
@@ -1549,6 +1693,144 @@
     c.font = `${Math.round(r.w * 0.022)}px sans-serif`;
     c.fillText("演示模式 · 在 ⚙ 设置里填 API 出真实图片", r.w / 2, r.h * 0.9);
     return off.toDataURL("image/png");
+  }
+
+  // ---------- 配方导入 / 内置场景模板 ----------
+  // 导出的 JSON 里的 layers 只是文字摘要（没有图片字节），无法还原图层，
+  // 因此导入明确只还原「素材选择 + 画幅 + 文案 + 提示词」，不假装能还原整张画。
+  function applyRecipe(rec) {
+    if (!rec) return { applied: [], missing: [] };
+    pushHistory("recipe");
+    const applied = [], missing = [];
+    const pick = (label, list, id) => {
+      if (!id) return null;
+      const hit = list.find((x) => x.id === id || x.name === id);
+      if (!hit) missing.push(label + ":" + id);
+      else applied.push(label);
+      return hit || null;
+    };
+    const st = pick("风格", allStyles(), rec.styleId);
+    const ly = pick("排版", LAYOUTS, rec.layoutId);
+    const co = pick("配色", COLORS, rec.colorId);
+    if (st) state.current.style = st;
+    if (ly) state.current.layout = ly;
+    if (co) state.current.color = co;
+    if (rec.fontName) {
+      const f = FONTS.find((x) => x.name === rec.fontName) || (state.customFonts || []).find((x) => x.name === rec.fontName);
+      if (f) { state.current.font = f; applied.push("字体"); } else missing.push("字体:" + rec.fontName);
+    }
+    if (Number.isFinite(rec.ratioIdx) && rec.ratioIdx >= 0 && rec.ratioIdx < RATIOS.length) {
+      if (rec.ratioIdx !== state.ratioIdx) {
+        state.ratioIdx = rec.ratioIdx;
+        $("#ratioSelect").value = String(rec.ratioIdx);
+        $("#customSize").hidden = true;
+        setCanvasSize();
+      }
+      applied.push("画幅");
+    } else if (rec.customSize && rec.customSize.w && rec.customSize.h) {
+      state.ratioIdx = RATIOS.length;
+      state.customSize = { w: +rec.customSize.w || 1024, h: +rec.customSize.h || 1366 };
+      $("#ratioSelect").value = "custom";
+      $("#customSize").hidden = false;
+      $("#customW").value = state.customSize.w;
+      $("#customH").value = state.customSize.h;
+      setCanvasSize();
+      applied.push("自定义画幅");
+    }
+    if (typeof rec.subject === "string") { $("#inpSubject").value = rec.subject; applied.push("主体"); }
+    if (typeof rec.content === "string") { $("#inpContent").value = rec.content; applied.push("内容"); }
+    setPromptManual(false);
+    refreshChips();
+    buildPrompt(true);
+    const qn = $("#quickNote");
+    if (qn) {
+      qn.textContent = rec.label
+        ? (rec.label + "：" + [state.current.style && state.current.style.id, state.current.layout && state.current.layout.id,
+            state.current.color && state.current.color.name].filter(Boolean).join(" / "))
+        : "";
+      qn.hidden = !qn.textContent;
+    }
+    renderRefBoard();
+    return { applied, missing };
+  }
+  function renderTemplates() {
+    const el = $("#tplBar"); if (!el) return;
+    el.innerHTML = SCENE_TEMPLATES.map((t) => `<button class="tpl-chip" data-tpl="${esc(t.id)}" title="套用整套配方：${esc(t.style)} / ${esc(t.layout)} / ${esc(t.color)}">${esc(t.name)}</button>`).join("");
+    el.querySelectorAll(".tpl-chip").forEach((b) => {
+      b.onclick = () => {
+        const t = SCENE_TEMPLATES.find((x) => x.id === b.dataset.tpl);
+        if (!t) return;
+        const r = applyRecipe({
+          styleId: t.style, layoutId: t.layout, colorId: t.color,
+          ratioIdx: t.ratioIdx, subject: t.subject, content: t.content, label: "已套用「" + t.name + "」",
+        });
+        el.querySelectorAll(".tpl-chip").forEach((x) => x.classList.toggle("on", x === b));
+        toast("已套用模板「" + t.name + "」" + (r.missing.length ? "（缺 " + r.missing.join("、") + "）" : " · 点「生成底图」出图"));
+      };
+    });
+  }
+  function normalizeRecipe(o) {
+    if (!o || typeof o !== "object") throw new Error("配方内容不是对象");
+    let ratioIdx, customSize = null;
+    const rid = String(o.ratio || (o.size && o.size.ratio) || "").trim();
+    const byId = RATIOS.findIndex((r) => r.id === rid);
+    if (byId >= 0) ratioIdx = byId;
+    else if (/^\d{2,4}x\d{2,4}$/i.test(rid)) {
+      const [w, h] = rid.toLowerCase().split("x").map(Number);
+      customSize = { w, h };
+    } else if (o.size && o.size.w && o.size.h) customSize = { w: o.size.w, h: o.size.h };
+    return {
+      styleId: o.style && (o.style.id || o.style),
+      layoutId: o.layout && (o.layout.id || o.layout),
+      colorId: o.color && (o.color.id || o.color),
+      fontName: o.font || null,
+      ratioIdx, customSize,
+      subject: o.subject || "", content: o.content || "",
+      prompt: typeof o.prompt === "string" ? o.prompt : "",
+      layerCount: Array.isArray(o.layers) ? o.layers.length : 0,
+      label: "已导入配方",
+    };
+  }
+  function parseRecipeMd(text) {
+    const line = (k) => {
+      const m = text.match(new RegExp("^-\\s*" + k + "：(.+)$", "m"));
+      return m ? m[1].trim() : "";
+    };
+    const idOf = (s) => { const m = String(s).match(/^([A-Z]{2}-\d{2,3})/); return m ? m[1] : ""; };
+    const colorLine = line("配色");
+    const colorId = (COLORS.find((c) => colorLine.indexOf(c.name) >= 0) || {}).id || "";
+    const pm = text.match(/##\s*完整提示词\s*\n([\s\S]*?)(?:\n##\s*图层|\n>\s*风格库来源|$)/);
+    return {
+      ratio: line("比例"), style: { id: idOf(line("风格")) }, layout: { id: idOf(line("排版")) },
+      color: { id: colorId }, font: line("字体"), subject: line("主体").replace(/^（无）$/, ""),
+      content: line("内容").replace(/^（无）$/, ""), prompt: pm ? pm[1].trim() : "",
+      size: {}, layers: [],
+    };
+  }
+  async function importRecipeFile(file) {
+    if (!file) return null;
+    try {
+      const text = await file.text();
+      let o;
+      if (/\.json$/i.test(file.name) || /^\s*\{/.test(text)) o = JSON.parse(text);
+      else o = parseRecipeMd(text);
+      const rec = normalizeRecipe(o);
+      if (!rec.styleId && !rec.layoutId && !rec.colorId && !rec.prompt) throw new Error("没读到可用的配方内容");
+      const r = applyRecipe(rec);
+      if (rec.prompt.trim()) { promptOut.value = rec.prompt; setPromptManual(true); }
+      const tail = [];
+      if (r.missing.length) tail.push("未找到：" + r.missing.join("、"));
+      if (rec.layerCount) tail.push("图层摘要 " + rec.layerCount + " 条仅供参考（原图不会还原）");
+      toast("已导入配方 · " + r.applied.join("/") + (tail.length ? " · " + tail.join(" · ") : ""));
+      return r;
+    } catch (e) {
+      toast("配方导入失败：" + e.message);
+      return null;
+    }
+  }
+  // 测试/自动化入口：不经过文件选择框也能验证解析逻辑
+  function importRecipeText(text, name) {
+    return importRecipeFile({ name: name || "recipe.json", text: async () => text });
   }
 
   // ---------- 导出 ----------
@@ -1632,7 +1914,9 @@
     try { const cf = JSON.parse(localStorage.getItem("aicanvas_customfonts")); if (Array.isArray(cf)) state.customFonts = cf; } catch {}
     // 自定义画布尺寸
     try { const cs = JSON.parse(localStorage.getItem("aicanvas_customsize")); if (cs && cs.w) state.customSize = cs; } catch {}
+    state.settings.batchN = batchN();
     $("#setMode").value = state.settings.mode;
+    $("#setBatchN").value = String(state.settings.batchN);
     $("#setBase").value = state.settings.base;
     $("#setKey").value = state.settings.key;
     $("#setModel").value = state.settings.model;
@@ -1663,6 +1947,7 @@
 
   function saveSettings() {
     state.settings.mode = $("#setMode").value;
+    state.settings.batchN = Math.max(1, Math.min(4, +$("#setBatchN").value || 1));
     state.settings.base = $("#setBase").value.trim();
     state.settings.key = $("#setKey").value.trim();
     state.settings.model = $("#setModel").value.trim();
@@ -1685,7 +1970,8 @@
     persistSettings();
     $("#openaiFields").hidden = state.settings.mode !== "openai";
     $("#proxyFields").hidden = state.settings.mode !== "proxy";
-    // 设置里改了模式，顶栏状态灯必须立刻跟着变
+    // 设置里改了模式 / 参考图来源，状态灯、确认板、提示词必须立刻跟着变
+    renderRefBoard(); buildPrompt();
     refreshBackendStatus();
     if (state.settings.mode === "proxy") detectProxy();
     closeSettings();
@@ -1774,6 +2060,16 @@
     $("#btnExportPng").onclick = exportPng;
     $("#btnExportJson").onclick = exportJson;
     $("#btnExportMd").onclick = exportMd;
+    $("#btnImportRecipe").onclick = () => $("#recipeFile").click();
+    $("#recipeFile").onchange = (e) => {
+      const f = e.target.files && e.target.files[0];
+      if (f) importRecipeFile(f);
+      e.target.value = "";
+    };
+    renderTemplates();
+    $("#variantClose").onclick = closeVariants;
+    $("#variantDiscard").onclick = closeVariants;
+    $("#variantMask").onclick = (e) => { if (e.target.id === "variantMask") closeVariants(); };
     $("#btnClear").onclick = () => {
       pushHistory("clear");
       state.layers = []; state.selectedId = null; emptyState.style.display = "";
@@ -1929,6 +2225,7 @@
     layerChangeTimer = setTimeout(() => {
       layerChangeTimer = null;
       try { layerChangeHook && layerChangeHook(); } catch (e) { /* 工作台未加载 */ }
+      renderRefBoard();   // 图层变化会影响「画布快照」这一候选
     }, 60);
   }
 
@@ -1990,6 +2287,10 @@
   window.AICanvas = {
     getBoard, loadBoard, snapshot, getAssetInfo, addFromCard,
     curDims, toast, quickMake, undo, redo, detectProxy,
+    applyRecipe, importRecipeText, renderRefBoard, renderTemplates,
+    showVariants, closeVariants, generate, recipe: () => recipeObject(),
+    templates: () => SCENE_TEMPLATES.map((t) => ({ ...t })),
+    refBoard: () => refCandidates().map((x) => ({ key: x.key, role: x.role, name: x.name, enabled: x.enabled })),
     ratios: () => RATIOS,
     hasLayers: () => state.layers.length > 0,
     onLayerChange: (cb) => { layerChangeHook = cb; },
@@ -2001,6 +2302,10 @@
       undoLen: undoStack.length, redoLen: redoStack.length,
       recent: recentList.slice(), favs: [...favSet], favOnly, assetQuery,
       backendOK, mode: state.settings.mode, ratioIdx: state.ratioIdx,
+      batchN: batchN(), variantOpen: !$("#variantMask").hidden,
+      variantCount: $("#variantGrid").querySelectorAll(".variant-card").length,
+      refEnabled: refCandidates().filter((x) => x.enabled).length,
+      tplCount: $("#tplBar").querySelectorAll(".tpl-chip").length,
       quickNote: $("#quickNote").textContent,
       backendText: $("#backendStatus").textContent,
       backendClass: $("#backendStatus").className,

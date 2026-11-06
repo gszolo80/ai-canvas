@@ -849,3 +849,46 @@ body.dark .fav-btn.on { background: #2b2f3a; }
 .prompt-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
 .prompt-actions .rp-tip { margin: 0; font-size: 10.5px; flex-basis: 100%; }
 #promptOut.manual { border-color: var(--accent); }
+
+/* ============ B 组：场景模板 / 参考图确认板 / 变体选优 ============ */
+.tpl-title { margin: 12px 0 6px; font-size: 10.5px; color: var(--ink-3); }
+.tpl-bar { display: flex; flex-wrap: wrap; gap: 5px; }
+.tpl-chip {
+  font-family: inherit; cursor: pointer; font-size: 10.5px; padding: 5px 9px;
+  border: 1px solid var(--border-strong); background: var(--surface-2);
+  color: var(--ink-2); border-radius: 999px; white-space: nowrap;
+}
+.tpl-chip:hover, .tpl-chip.on { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.tpl-chip.on { font-weight: 600; }
+.rb-count { float: right; font-size: 10px; font-weight: 500; color: var(--ink-3); }
+.ref-board { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-top: 8px; }
+.rb-item {
+  display: flex; align-items: center; gap: 6px; min-width: 0; padding: 5px 6px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2);
+  cursor: pointer; font-size: 10.5px; color: var(--ink-2);
+}
+.rb-item.on { border-color: var(--accent); background: var(--accent-soft); }
+.rb-item.off { opacity: .55; }
+.rb-item img, .rb-canvas-ico { width: 34px; height: 34px; object-fit: cover; border-radius: 5px; flex-shrink: 0; background: #fff; }
+.rb-canvas-ico { display: flex; align-items: center; justify-content: center; font-size: 17px; border: 1px solid var(--border); }
+.rb-item input { accent-color: var(--accent); flex-shrink: 0; }
+.rb-txt { min-width: 0; line-height: 1.35; }
+.rb-txt b { display: block; font-size: 10.5px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rb-txt span { color: var(--ink-3); font-size: 9.5px; }
+.rb-empty { grid-column: 1 / -1; font-size: 10.5px; color: var(--ink-3); padding: 4px 0; }
+.variant-modal { width: min(880px, 94vw); max-height: 88vh; overflow: auto; padding: 0; }
+.variant-modal .settings-head { position: sticky; top: 0; background: var(--surface); z-index: 1; margin: 0; }
+.variant-modal .rp-tip { margin: 14px 22px 6px; }
+.variant-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 10px 22px 4px; }
+.variant-card {
+  border: 1px solid var(--border-strong); border-radius: var(--r-md);
+  background: var(--surface-2); padding: 8px; cursor: pointer; text-align: center;
+  transition: border-color .12s, box-shadow .12s;
+}
+.variant-card:hover { border-color: var(--accent); box-shadow: var(--sh-focus); }
+.variant-card img { width: 100%; height: 220px; object-fit: contain; border-radius: 6px; background: #fff; display: block; }
+.variant-card .vc-label { margin-top: 7px; font-size: 11px; color: var(--ink-2); }
+.variant-card .vc-pick { display: inline-block; margin-top: 5px; font-size: 10.5px; color: var(--accent); }
+.variant-modal .modal-foot { padding: 8px 22px 18px; align-items: center; }
+body.dark .rb-item img, body.dark .variant-card img { background: #20242e; }
+@media (max-width: 1200px) { .variant-grid { grid-template-columns: 1fr; } }

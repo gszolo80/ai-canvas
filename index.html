@@ -12,7 +12,7 @@
   <link rel="stylesheet" href="https://cdn.staticfile.org/lxgw-wenkai-screen-webfont/1.7.0/style.css" />
   <link rel="stylesheet" href="https://unpkg.com/misans@5.0.0/lib/Normal/MiSans-Regular.min.css" />
   <link rel="stylesheet" href="https://unpkg.com/misans@5.0.0/lib/Normal/MiSans-Bold.min.css" />
-  <link rel="stylesheet" href="styles.css?v=20261106h" />
+  <link rel="stylesheet" href="styles.css?v=20261106i" />
 </head>
 <body>
   <!-- 顶栏 -->
@@ -140,6 +140,8 @@
         <button class="btn" id="btnExportPng">导出 PNG</button>
         <button class="btn" id="btnExportJson">配方 JSON</button>
         <button class="btn" id="btnExportMd">配方 MD</button>
+        <button class="btn" id="btnImportRecipe" title="导入之前导出的配方 JSON / MD，还原风格、排版、配色与文案">⇪ 导入配方</button>
+        <input type="file" id="recipeFile" accept=".json,.md,application/json,text/markdown" hidden />
         <button class="btn" id="btnFullscreen" title="隐藏两侧面板，画布全屏（Esc 退出）">⛶ 全屏画布</button>
         <button class="btn danger ghost" id="btnClear">清空画布</button>
       </div>
@@ -167,6 +169,8 @@
         <div id="chips" class="chips">
           <span class="chip empty">尚未选择任何素材</span>
         </div>
+        <div class="tpl-title">场景模板 · 点一下套用整套配方</div>
+        <div class="tpl-bar" id="tplBar"></div>
       </div>
 
       <div class="rp-section">
@@ -178,6 +182,12 @@
           <span id="promptManualNote" class="rp-tip" hidden>已手动编辑 · 点「恢复自动组装」按素材重新生成</span>
         </div>
         <div class="rp-tip" id="charNote" hidden>⚠ 角色一致性约 80–85%，依赖所选模型，极端角度可能漂移。</div>
+      </div>
+
+      <div class="rp-section" id="refBoardSection">
+        <h3>本次参考图 <span class="rb-count" id="refBoardCount">0 / 4</span></h3>
+        <div class="rp-tip" id="refBoardHint">选中的图会随出图请求发给模型；最多 4 张。</div>
+        <div id="refBoard" class="ref-board"></div>
       </div>
 
       <div class="rp-section">
@@ -260,6 +270,13 @@
               <option value="proxy">本地代理（推荐 · 参考图进模型 / 免 CORS / Key 不进浏览器）</option>
               <option value="openai">OpenAI 兼容接口（浏览器直连，可能有 CORS 预检问题）</option>
             </select>
+            <label class="lbl">一次出图张数（并排选优）</label>
+            <select id="setBatchN" class="inp">
+              <option value="1">1 张（默认 · 直接入画布）</option>
+              <option value="2">2 张 · 弹出并排预览挑一张</option>
+              <option value="4">4 张 · 弹出并排预览挑一张</option>
+            </select>
+            <div class="rp-tip">多于 1 张时按不同 seed 生成，弹出并排预览，点一张才入画布；未选中的不占图层。</div>
             <div id="openaiFields" hidden>
               <label class="lbl">Base URL</label>
               <input id="setBase" class="inp" placeholder="https://ark.cn-beijing.volces.com/api/v3" />
@@ -358,10 +375,25 @@
     </div>
   </div>
 
+  <!-- 多张变体并排选优 -->
+  <div class="modal-mask" id="variantMask" hidden>
+    <div class="modal glass variant-modal">
+      <div class="settings-head">
+        <h3>🎨 挑一张最满意的</h3>
+        <button class="modal-x" id="variantClose" title="关闭（都不选）">×</button>
+      </div>
+      <div class="rp-tip" id="variantHint">点任意一张即可加入画布；未选中的不会占用图层。</div>
+      <div id="variantGrid" class="variant-grid"></div>
+      <div class="modal-foot">
+        <button class="btn" id="variantDiscard">都不要</button>
+      </div>
+    </div>
+  </div>
+
   <div id="toast" class="toast" hidden></div>
 
-  <script src="data.js?v=20261106h"></script>
-  <script src="app.js?v=20261106h"></script>
-  <script src="workbench.js?v=20261106h"></script>
+  <script src="data.js?v=20261106i"></script>
+  <script src="app.js?v=20261106i"></script>
+  <script src="workbench.js?v=20261106i"></script>
 </body>
 </html>
