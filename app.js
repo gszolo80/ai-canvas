@@ -22,7 +22,20 @@
       upload: { maxEdge: 2048, quality: 0.85, format: "keep" },
       prompt: { lang: "cn", includeFont: true, includeChar: true, anchor: "", suffix: "" },
       customStyles: [],
+      proxy: {
+        base: "http://127.0.0.1:9004",
+        upstream: "",
+        refs: { style: true, layout: true, color: true, character: false, canvas: false },
+        strength: 0.65,
+        negative: "",
+        customRefs: [],   // [{id, name, src}]，自定义补充参考图（dataURL）
+      },
     },
+  };
+  const PROXY_DEFAULT = {
+    base: "http://127.0.0.1:9004", upstream: "",
+    refs: { style: true, layout: true, color: true, character: false, canvas: false },
+    strength: 0.65, negative: "", customRefs: [],
   };
   const imgCache = {}; // src -> HTMLImageElement
   const imgFailed = new Set(); // 加载失败的图片地址
@@ -1016,6 +1029,164 @@
     }
   }
 
+  // ---------- 本地代理 + 参考图进模型 ----------
+  // 网页只跟 127.0.0.1 的代理说话：CORS / Key / 参考图编码都由代理处理。
+  // 代理会明确回报 refs_used / refs_dropped，绝不假装参考图进了模型。
+  function proxyBase() {
+    return ((state.settings.proxy && state.settings.proxy.base) || PROXY_DEFAULT.base).replace(/\/+$/, "");
+  }
+  const escHtml = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  function loadImg(src) {
+    return new Promise((resolve, reject) => {
+      const im = new Image();
+      im.onload = () => resolve(im);
+      im.onerror = () => reject(new Error("图片加载失败"));
+      im.src = src;
+    });
+  }
+
+  // 统一压成 1024 边长 JPEG，4 张参考图不至于把请求体撑到几十 MB
+  async function refToDataUrl(src) {
+    if (!src) return null;
+    let url = src, revoke = false;
+    if (!/^data:/.test(src)) {
+      const r = await fetch(src);
+      if (!r.ok) throw new Error("素材图 HTTP " + r.status);
+      url = URL.createObjectURL(await r.blob());
+      revoke = true;
+    }
+    try {
+      const im = await loadImg(url);
+      const max = 1024;
+      const s = Math.min(1, max / Math.max(im.naturalWidth || 1, im.naturalHeight || 1));
+      const off = document.createElement("canvas");
+      off.width = Math.max(1, Math.round((im.naturalWidth || 1) * s));
+      off.height = Math.max(1, Math.round((im.naturalHeight || 1) * s));
+      const c = off.getContext("2d");
+      c.fillStyle = "#ffffff"; c.fillRect(0, 0, off.width, off.height);
+      c.drawImage(im, 0, 0, off.width, off.height);
+      return off.toDataURL("image/jpeg", 0.82);
+    } finally {
+      if (revoke) URL.revokeObjectURL(url);
+    }
+  }
+
+  async function collectRefs() {
+    const p = state.settings.proxy || PROXY_DEFAULT;
+    const r = p.refs || PROXY_DEFAULT.refs;
+    const jobs = [];
+    const push = (role, name, src) => { if (src) jobs.push({ role, name, src }); };
+    if (r.style && state.current.style) push("style", state.current.style.name || state.current.style.id, state.current.style.img);
+    if (r.layout && state.current.layout) push("layout", state.current.layout.name || state.current.layout.id, state.current.layout.img);
+    if (r.color && state.current.color) push("color", state.current.color.name || state.current.color.id, state.current.color.img);
+    if (r.character && state.current.character) push("character", state.current.character.name || "主角", state.current.character.src);
+    if (r.canvas && state.layers.length) push("canvas", "当前画布", snapshot());
+    (p.customRefs || []).forEach((x) => push("custom", x.name || "补充参考图", x.src));
+    const out = [];
+    for (const j of jobs) {
+      if (out.length >= 4) break;
+      try {
+        const dataUrl = await refToDataUrl(j.src);
+        if (dataUrl) out.push({ role: j.role, name: j.name, dataUrl });
+      } catch (e) { console.warn("[proxy] 参考图跳过", j.role, j.name, e.message); }
+    }
+    return out;
+  }
+
+  function friendlyProxyError(err, base) {
+    const m = String((err && err.message) || err);
+    if (/Failed to fetch|NetworkError|Load failed/i.test(m)) {
+      return "连不上本地代理 " + base + "。请先双击「启动出图代理.command」，或检查代理地址 / 端口";
+    }
+    return m;
+  }
+
+  async function generateViaProxy(prompt) {
+    const p = state.settings.proxy || PROXY_DEFAULT;
+    const base = proxyBase();
+    toast("正在整理参考图…");
+    const refs = await collectRefs();
+    toast("正在生成（参考图 " + refs.length + " 张）…");
+    const d = curDims();
+    const body = {
+      prompt, size: d.w + "x" + d.h, n: 1, refs,
+      options: { strength: +p.strength || 0.65, negative: p.negative || "" },
+    };
+    if (p.upstream) body.upstream = p.upstream;
+    const res = await fetch(base + "/v1/generate", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const j = await res.json();
+    if (!res.ok || !j.ok) throw new Error((j.error && j.error.message) || ("HTTP " + res.status));
+    const imgUrl = j.images && j.images[0];
+    if (!imgUrl) throw new Error("代理没返回图片");
+    addLayer({
+      type: "image", src: imgUrl,
+      x: canvas.width * 0.12, y: canvas.height * 0.12,
+      w: canvas.width * 0.76, h: canvas.height * 0.76,
+      name: "生成底图(代理)",
+    });
+    notifyGenerated(imgUrl, "生成底图(代理)");
+    const m = j.meta || {};
+    const used = (m.refs_used || []).length;
+    const dropped = (m.refs_dropped || []).length;
+    if (dropped) toast("已生成 · 注意：" + dropped + " 张参考图未进模型（" + (m.note || "上游不支持带图") + "）");
+    else toast("已生成 · " + used + " 张参考图已进模型" + (m.simulated ? "（自检模拟图）" : ""));
+    if (m.note) console.info("[proxy] " + m.note);
+  }
+
+  async function testProxyHealth() {
+    const el = $("#proxyHealthMsg");
+    const base = proxyBase();
+    el.textContent = "检测中…";
+    try {
+      const res = await fetch(base + "/v1/health", { cache: "no-store" });
+      const j = await res.json();
+      if (!res.ok || !j.ok) throw new Error("HTTP " + res.status);
+      el.textContent = "✅ 已连接 · 上游 " + j.upstream + " · 参考图上限 " + j.max_refs
+        + " · Key " + (j.cloud && j.cloud.key_present ? "已配置" : "未配置");
+    } catch (e) {
+      el.textContent = "❌ " + friendlyProxyError(e, base);
+    }
+  }
+
+  function renderRefPreview() {
+    const el = $("#setRefPreview");
+    if (!el) return;
+    const list = state.settings.proxy.customRefs || [];
+    el.innerHTML = list.length
+      ? list.map((x) => '<div class="ref-item"><img src="' + x.src + '" alt=""><span>' + escHtml(x.name)
+        + '</span><button class="ref-del" data-id="' + escHtml(x.id) + '" title="移除">×</button></div>').join("")
+      : '<div class="layer-empty">未添加补充参考图</div>';
+    el.querySelectorAll(".ref-del").forEach((b) => {
+      b.onclick = () => {
+        state.settings.proxy.customRefs = state.settings.proxy.customRefs.filter((x) => x.id !== b.dataset.id);
+        persistSettings(); renderRefPreview();
+      };
+    });
+  }
+
+  async function addCustomRefs(files) {
+    const p = state.settings.proxy;
+    for (const f of Array.from(files || []).slice(0, 4)) {
+      try {
+        const src = await refToDataUrl(await new Promise((resolve, reject) => {
+          const fr = new FileReader();
+          fr.onload = () => resolve(fr.result);
+          fr.onerror = () => reject(new Error("读取失败"));
+          fr.readAsDataURL(f);
+        }));
+        if (src) p.customRefs.push({ id: "R" + Date.now() + Math.random().toString(36).slice(2, 6), name: f.name, src });
+      } catch (e) { toast("参考图读取失败：" + f.name); }
+    }
+    while (p.customRefs.length > 4) p.customRefs.shift();
+    try { persistSettings(); } catch (e) { toast("本机存储空间不足，请少放几张参考图"); }
+    renderRefPreview();
+  }
+
   // ---------- 出图 ----------
   async function generate() {
     buildPrompt();
@@ -1027,6 +1198,12 @@
       addLayer({ type: "image", src: dataUrl, x: canvas.width * 0.12, y: canvas.height * 0.12, w: canvas.width * 0.76, h: canvas.height * 0.76, name: "生成底图(演示)" });
       notifyGenerated(dataUrl, "生成底图(演示)");
       toast("演示底图已生成（填 API 出真图）");
+    } else if (state.settings.mode === "proxy") {
+      try {
+        await generateViaProxy(prompt);
+      } catch (err) {
+        toast("生成失败：" + friendlyProxyError(err, proxyBase()));
+      }
     } else {
       toast("正在调用接口生成…");
       try {
@@ -1149,6 +1326,10 @@
         state.settings.upload = Object.assign({ maxEdge: 2048, quality: 0.85, format: "keep" }, s.upload || {});
         state.settings.prompt = Object.assign({ lang: "cn", includeFont: true, includeChar: true, anchor: "", suffix: "" }, s.prompt || {});
         state.settings.customStyles = s.customStyles || [];
+        // 老存档没有 proxy 字段时用默认值补齐，避免 undefined 打断生成
+        state.settings.proxy = Object.assign({}, PROXY_DEFAULT, s.proxy || {});
+        state.settings.proxy.refs = Object.assign({}, PROXY_DEFAULT.refs, (s.proxy && s.proxy.refs) || {});
+        if (!Array.isArray(state.settings.proxy.customRefs)) state.settings.proxy.customRefs = [];
       }
     } catch {}
     // 自定义字体（独立于 settings 存储，避免大文件撑爆 settings 写入）
@@ -1160,6 +1341,17 @@
     $("#setKey").value = state.settings.key;
     $("#setModel").value = state.settings.model;
     $("#openaiFields").hidden = state.settings.mode !== "openai";
+    $("#proxyFields").hidden = state.settings.mode !== "proxy";
+    const px = state.settings.proxy;
+    $("#setProxyBase").value = px.base;
+    $("#setProxyUpstream").value = px.upstream;
+    $("#setRefStrength").value = px.strength;
+    $("#setStrengthVal").textContent = px.strength;
+    $("#setNegative").value = px.negative;
+    $("#setRefSrcs").querySelectorAll("input[data-ref]").forEach((cb) => {
+      cb.checked = !!px.refs[cb.dataset.ref];
+    });
+    renderRefPreview();
     $("#setMaxEdge").value = state.settings.upload.maxEdge;
     $("#setFmt").value = state.settings.upload.format;
     $("#setQuality").value = state.settings.upload.quality;
@@ -1178,6 +1370,14 @@
     state.settings.base = $("#setBase").value.trim();
     state.settings.key = $("#setKey").value.trim();
     state.settings.model = $("#setModel").value.trim();
+    const px = state.settings.proxy;
+    px.base = $("#setProxyBase").value.trim() || PROXY_DEFAULT.base;
+    px.upstream = $("#setProxyUpstream").value;
+    px.strength = +$("#setRefStrength").value;
+    px.negative = $("#setNegative").value.trim();
+    $("#setRefSrcs").querySelectorAll("input[data-ref]").forEach((cb) => {
+      px.refs[cb.dataset.ref] = cb.checked;
+    });
     state.settings.upload.maxEdge = +$("#setMaxEdge").value;
     state.settings.upload.format = $("#setFmt").value;
     state.settings.upload.quality = +$("#setQuality").value;
@@ -1188,6 +1388,7 @@
     state.settings.prompt.suffix = $("#setSuffix").value;
     persistSettings();
     $("#openaiFields").hidden = state.settings.mode !== "openai";
+    $("#proxyFields").hidden = state.settings.mode !== "proxy";
     closeSettings();
     toast("设置已保存");
   }
@@ -1346,8 +1547,15 @@
     $("#btnSetClose").onclick = closeSettings;
     $("#btnSetCancel").onclick = closeSettings; // 取消 = 不保存直接关闭
     $("#btnSetSave").onclick = saveSettings;
-    $("#setMode").onchange = () => ($("#openaiFields").hidden = $("#setMode").value !== "openai");
+    $("#setMode").onchange = () => {
+      const m = $("#setMode").value;
+      $("#openaiFields").hidden = m !== "openai";
+      $("#proxyFields").hidden = m !== "proxy";
+    };
     $("#setQuality").oninput = () => ($("#setQVal").textContent = $("#setQuality").value);
+    $("#setRefStrength").oninput = () => ($("#setStrengthVal").textContent = $("#setRefStrength").value);
+    $("#btnProxyHealth").onclick = testProxyHealth;
+    $("#setRefUpload").onchange = (e) => { addCustomRefs(e.target.files); e.target.value = ""; };
     $("#btnAddStyle").onclick = addCustomStyle;
     // 子标签切换
     $("#setTabs").querySelectorAll(".stab").forEach((t) => {

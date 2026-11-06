@@ -12,7 +12,7 @@
   <link rel="stylesheet" href="https://cdn.staticfile.org/lxgw-wenkai-screen-webfont/1.7.0/style.css" />
   <link rel="stylesheet" href="https://unpkg.com/misans@5.0.0/lib/Normal/MiSans-Regular.min.css" />
   <link rel="stylesheet" href="https://unpkg.com/misans@5.0.0/lib/Normal/MiSans-Bold.min.css" />
-  <link rel="stylesheet" href="styles.css?v=20261106f" />
+  <link rel="stylesheet" href="styles.css?v=20261106g" />
 </head>
 <body>
   <!-- 顶栏 -->
@@ -239,7 +239,8 @@
             <label class="lbl">模式</label>
             <select id="setMode" class="inp">
               <option value="demo">演示模式（无需 Key，返回占位底图，走通全流程）</option>
-              <option value="openai">OpenAI 兼容接口（豆包 / 火山引擎 Ark / WorkBuddy）</option>
+              <option value="proxy">本地代理（推荐 · 参考图进模型 / 免 CORS / Key 不进浏览器）</option>
+              <option value="openai">OpenAI 兼容接口（浏览器直连，可能有 CORS 预检问题）</option>
             </select>
             <div id="openaiFields" hidden>
               <label class="lbl">Base URL</label>
@@ -248,7 +249,38 @@
               <input id="setKey" class="inp" type="password" placeholder="你的密钥（仅存本地浏览器）" />
               <label class="lbl">模型名</label>
               <input id="setModel" class="inp" placeholder="如 doubao-seedream-3.0" />
-              <div class="rp-tip">填好后点「生成底图」即出真实图片。密钥只存本机，不上传。</div>
+              <div class="rp-tip">填好后点「生成底图」即出真实图片。密钥只存本机，不上传。浏览器直连第三方会被 CORS 预检拦住时，改用上面的「本地代理」。</div>
+            </div>
+            <div id="proxyFields" hidden>
+              <label class="lbl">代理地址</label>
+              <input id="setProxyBase" class="inp" placeholder="http://127.0.0.1:9004" />
+              <div class="proxy-health">
+                <button class="btn btn-xs" id="btnProxyHealth" type="button">测试连接</button>
+                <span id="proxyHealthMsg" class="rp-tip">未检测</span>
+              </div>
+              <label class="lbl">上游引擎</label>
+              <select id="setProxyUpstream" class="inp">
+                <option value="">跟随代理配置（推荐）</option>
+                <option value="mock">自检 mock（不消耗积分，回显收到几张参考图）</option>
+                <option value="cloud">云端 OpenAI 兼容（带图走 /images/edits）</option>
+                <option value="comfy">本地 ComfyUI（需要 IP-Adapter workflow）</option>
+              </select>
+              <label class="lbl">参考图来源（真的发给模型，最多 4 张）</label>
+              <div class="ref-srcs" id="setRefSrcs">
+                <label><input type="checkbox" data-ref="style" checked /> 风格图</label>
+                <label><input type="checkbox" data-ref="layout" checked /> 排版图</label>
+                <label><input type="checkbox" data-ref="color" checked /> 配色图</label>
+                <label><input type="checkbox" data-ref="character" /> 主角图</label>
+                <label><input type="checkbox" data-ref="canvas" /> 画布快照</label>
+              </div>
+              <label class="lbl">补充参考图（可多选，会自动压缩）</label>
+              <input id="setRefUpload" type="file" accept="image/*" multiple class="inp" />
+              <div id="setRefPreview" class="ref-prev"></div>
+              <label class="lbl">参考强度（IP-Adapter 用）：<span id="setStrengthVal">0.65</span></label>
+              <input type="range" id="setRefStrength" class="inp" min="0" max="1" step="0.05" value="0.65" />
+              <label class="lbl">反向提示词（可选）</label>
+              <input id="setNegative" class="inp" placeholder="例如：watermark, blurry, extra text" />
+              <div class="rp-tip">先双击项目里的「启动出图代理.command」。Key 写在 <code>server/config.json</code>，不在网页里填。<br>参考图是否真的参与了生成，出图后会明确回报；上游不支持带图时会标注「未进模型」，不会假装成功。</div>
             </div>
           </section>
           <!-- 图片上传 -->
@@ -310,8 +342,8 @@
 
   <div id="toast" class="toast" hidden></div>
 
-  <script src="data.js?v=20261106f"></script>
-  <script src="app.js?v=20261106f"></script>
-  <script src="workbench.js?v=20261106f"></script>
+  <script src="data.js?v=20261106g"></script>
+  <script src="app.js?v=20261106g"></script>
+  <script src="workbench.js?v=20261106g"></script>
 </body>
 </html>

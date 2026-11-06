@@ -1,0 +1,28 @@
+{
+  "_说明": "复制本文件为 server/config.json 再改；config.json 已被 .gitignore 忽略，不会进 git。改完重启代理生效。",
+
+  "host": "127.0.0.1",
+  "port": 9004,
+  "upstream": "mock",
+  "allow_upstream_override": true,
+  "max_refs": 4,
+  "max_body_mb": 24,
+
+  "cloud": {
+    "_说明": "OpenAI 兼容端点。key 只留在服务端，网页不需要填；支持 /images/edits 时参考图才会真进模型。",
+    "base": "https://ark.cn-beijing.volces.com/api/v3",
+    "key": "",
+    "model": "doubao-seedream-3.0",
+    "edit_model": "gpt-image-1",
+    "supports_edits": true,
+    "timeout": 120
+  },
+
+  "comfy": {
+    "_说明": "本地 ComfyUI。workflow 用 ComfyUI 网页「Save (API Format)」导出的 JSON；想让参考图进模型，模板里必须有 {{REF_IMAGE}} 占位符并接到 IPAdapter/ControlNet 节点。",
+    "base": "http://127.0.0.1:8188",
+    "workflow": "server/workflows/txt2img.json",
+    "timeout": 180,
+    "poll_interval": 1.0
+  }
+}

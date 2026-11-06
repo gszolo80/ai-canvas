@@ -1,3 +1,9 @@
 .DS_Store
 .preview.log
 .preview.pid
+.proxy.log
+.proxy.pid
+server/config.json
+server/workflows/*.local.json
+__pycache__/
+*.pyc
