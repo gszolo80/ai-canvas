@@ -45,6 +45,30 @@
   // 配色兜底：老存档 / 自建配色可能没有 hex，别让 addColorStop(undefined) 把生成链整条打断
   const colorHex = (c) => (c && c.hex) || "#c7d2fe";
 
+  // ---------- 快捷体验：手动提示词 / 撤销栈 / 素材检索 ----------
+  let promptManual = false;          // 提示词被手改后，自动组装不再覆盖
+  const HISTORY_MAX = 40;
+  const undoStack = [], redoStack = [];
+  let lastHistKey = "", lastHistAt = 0, suppressHistory = false;
+  let backendOK = false;             // 最近一次代理健康检测结果
+  const favSet = new Set();          // "tab:id"
+  let recentList = [];              // [{tab,id,label}]
+  let assetQuery = "", favOnly = false;
+  const LS_FAVS = "aicanvas_favs", LS_RECENT = "aicanvas_recent";
+  try {
+    const f = JSON.parse(localStorage.getItem(LS_FAVS) || "[]");
+    if (Array.isArray(f)) f.forEach((k) => favSet.add(k));
+    const r = JSON.parse(localStorage.getItem(LS_RECENT) || "[]");
+    if (Array.isArray(r)) recentList = r.slice(0, 8);
+  } catch (e) {}
+  const histKey = (tab, id) => tab + ":" + id;
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  function setPromptManual(v) {
+    promptManual = !!v;
+    promptOut.classList.toggle("manual", promptManual);
+    const n = $("#promptManualNote"); if (n) n.hidden = !promptManual;
+  }
+
   // 文字字号层级（命名角色）：主标题 / 副标题 / 正文 / 署名
   // rel = 相对画布宽度的字号比例；一幅图建议只用这 3–4 种，保持版面统一
   const TEXT_ROLES = [
@@ -215,7 +239,54 @@
   }
 
   // ---------- 图层操作 ----------
+  // ---------- 成图编辑器撤销 / 重做 ----------
+  // 和工作台两套栈互不干扰：工作台模式由 workbench.js 自己处理 Ctrl+Z。
+  function boardState() {
+    const b = getBoard();
+    b.selectedId = state.selectedId;
+    b.prompt = promptOut.value;
+    b.promptManual = promptManual;
+    const qn = $("#quickNote");
+    b.quickNote = { text: qn ? qn.textContent : "", hidden: qn ? qn.hidden : true };
+    return b;
+  }
+  function pushHistory(key) {
+    if (suppressHistory) return;
+    const now = Date.now();
+    if (key && key === lastHistKey && now - lastHistAt < 700) return; // 连续拖同一控件合并成一步
+    lastHistKey = key || ""; lastHistAt = now;
+    try { undoStack.push(JSON.stringify(boardState())); } catch (e) { return; }
+    if (undoStack.length > HISTORY_MAX) undoStack.shift();
+    redoStack.length = 0;
+  }
+  function applyBoard(b) {
+    if (!b) return;
+    setPromptManual(false);
+    loadBoard(b);
+    setPromptManual(!!b.promptManual);
+    if (typeof b.prompt === "string") promptOut.value = b.prompt;
+    state.selectedId = b.selectedId || null;
+    if (b.quickNote) {
+      const n = $("#quickNote");
+      if (n) { n.textContent = b.quickNote.text || ""; n.hidden = b.quickNote.hidden === undefined ? !b.quickNote.text : b.quickNote.hidden; }
+    }
+    refreshLayers(); render();
+  }
+  function undo() {
+    if (!undoStack.length) { toast("没有可撤销的操作"); return; }
+    redoStack.push(JSON.stringify(boardState()));
+    applyBoard(JSON.parse(undoStack.pop()));
+    lastHistKey = ""; toast("已撤销");
+  }
+  function redo() {
+    if (!redoStack.length) { toast("没有可重做的操作"); return; }
+    undoStack.push(JSON.stringify(boardState()));
+    applyBoard(JSON.parse(redoStack.pop()));
+    lastHistKey = ""; toast("已重做");
+  }
+
   function addLayer(layer) {
+    pushHistory("add:" + (layer.name || layer.type));
     layer.id = layer.id || uid();
     state.layers.push(layer);
     state.selectedId = layer.id;
@@ -228,6 +299,7 @@
     notifyLayerChanged();
   }
   function removeLayer(id) {
+    pushHistory("del:" + id);
     state.layers = state.layers.filter((l) => l.id !== id);
     if (state.selectedId === id) state.selectedId = null;
     if (state.layers.length === 0) emptyState.style.display = "";
@@ -235,6 +307,7 @@
     notifyLayerChanged();
   }
   function bringToFront(id) {
+    pushHistory("front:" + id);
     const i = state.layers.findIndex((l) => l.id === id);
     if (i >= 0) { const [l] = state.layers.splice(i, 1); state.layers.push(l); render(); refreshLayers(); }
   }
@@ -439,6 +512,8 @@
 
   // ---------- 拖拽：卡片 -> 画布 ----------
   function addFromCard(tab, id, point, role) {
+    if (!getAssetInfo(tab, id)) return;
+    noteRecent(tab, id);
     const cx = point && point.inside ? point.x : canvas.width / 2;
     const cy = point && point.inside ? point.y : canvas.height / 2;
     const refSide = Math.round(canvas.width * 0.24); // 参考卡统一尺寸（风格/角色一致）
@@ -457,6 +532,7 @@
     } else if (tab === "color") {
       const c = COLORS.find((x) => x.id === id);
       if (!c) return;
+      pushHistory("color:" + id);
       state.current.color = c;
       state.layers = state.layers.filter((l) => l.type !== "color");
       state.layers.unshift({ id: uid(), type: "color", color: colorHex(c), name: "底色 " + c.id });
@@ -529,9 +605,51 @@
       `</div>`;
   }
 
+  // ---------- 素材检索：搜索 / 收藏 / 最近使用 ----------
+  function assetMatches(item, tab, q) {
+    const key = histKey(tab, item.id || item.name);
+    if (favOnly && !favSet.has(key)) return false;
+    if (!q) return true;
+    const hay = [item.id, item.name, item.prompt, item.license, item.hex].filter(Boolean).join(" ").toLowerCase();
+    return hay.indexOf(q) >= 0;
+  }
+  function noteRecent(tab, id) {
+    const info = getAssetInfo(tab, id);
+    const full = String((info && info.name) || id);
+    // 官方素材显示编号（短、好扫），自定义 / 上传图才显示名称
+    const label = /^(FA|FB|FC|FD|FE|FF|FG|FH|FI|SC|SB|IG|EC|IP|C)-\d/.test(String(id))
+      ? String(id) : full.slice(0, 8);
+    recentList = [{ tab, id, label, full }].concat(recentList.filter((r) => !(r.tab === tab && r.id === id))).slice(0, 8);
+    try { localStorage.setItem(LS_RECENT, JSON.stringify(recentList)); } catch (e) {}
+    renderRecent();
+  }
+  function renderRecent() {
+    const bar = $("#recentBar");
+    if (!bar) return;
+    bar.hidden = recentList.length === 0;
+    bar.innerHTML = recentList.length
+      ? `<span class="recent-label">最近：</span>` + recentList.map((r) =>
+          `<button class="recent-chip" data-tab="${esc(r.tab)}" data-id="${esc(r.id)}" title="再次使用 ${esc(r.full || r.label)}">${esc(r.label)}</button>`).join("")
+      : "";
+    bar.querySelectorAll(".recent-chip").forEach((b) => {
+      b.onclick = () => addFromCard(b.dataset.tab, b.dataset.id, null);
+    });
+  }
+  function toggleFav(key) {
+    if (favSet.has(key)) favSet.delete(key); else favSet.add(key);
+    try { localStorage.setItem(LS_FAVS, JSON.stringify([...favSet])); } catch (e) {}
+    renderTab(tabsEl.querySelector(".tab.active").dataset.tab);
+    toast(favSet.has(key) ? "已收藏这张素材" : "已取消收藏");
+  }
+  function emptyResult(extra) {
+    return `<div class="layer-empty" style="padding:16px 4px">没有匹配的素材${extra || ""}</div>`;
+  }
+
   let gridLimit = 60;       // 风格/排版列表分批加载：每次渲染上限
   let lastGridKey = "";     // 记录当前 tab+分类，切换时重置上限
   function renderTab(tab) {
+    const q = assetQuery.trim().toLowerCase();
+    let lim = (q || favOnly) ? 120 : gridLimit;
     if (tab === "style" || tab === "layout") {
       const isStyle = tab === "style";
       const all = isStyle ? allStyles() : LAYOUTS;
@@ -542,23 +660,29 @@
       const catList = ["全部"].concat(baseCats.filter((c) => counts[c]));
       if (counts["我的自定义"]) catList.push("我的自定义");
       if (counts["其他"]) catList.push("其他");
-      const filtered = cur === "全部" ? all : all.filter((it) => fn(it.id) === cur);
+      let filtered = cur === "全部" ? all : all.filter((it) => fn(it.id) === cur);
+      filtered = filtered.filter((it) => assetMatches(it, tab, q));
       const key = tab + "|" + cur;
       if (key !== lastGridKey) { gridLimit = 60; lastGridKey = key; }
-      const visible = filtered.slice(0, gridLimit);
-      const hasMore = filtered.length > gridLimit;
+      lim = (q || favOnly) ? 120 : gridLimit;
+      const visible = filtered.slice(0, lim);
+      const hasMore = !q && !favOnly && filtered.length > lim;
       const tools = isStyle ? `<button class="mini-btn" id="btnNewStyle">＋ 自定义风格</button>` : "";
       const chips = catList.map((c) => `<button class="cat ${c === cur ? "active" : ""}" data-cat="${c}">${c}${c === "全部" ? "" : " ·" + (counts[c] || 0)}</button>`).join("");
-      const meta = `<div class="lib-meta">共 ${filtered.length} 项${cur !== "全部" ? " · 已筛选「" + cur + "」" : ""}</div>`;
+      const meta = `<div class="lib-meta">共 ${filtered.length} 项${cur !== "全部" ? " · 已筛选「" + cur + "」" : ""}${q ? ' · 搜索「' + esc(assetQuery.trim()) + '」' : ""}${favOnly ? " · 只看收藏" : ""}</div>`;
       const filter = `<div class="filter-block"><div class="filter-title">分类筛选</div><div class="catbar">${chips}</div></div>`;
-      tabBody.innerHTML = `<div class="tab-tools">${tools}</div>${filter}${meta}<div class="grid">${visible.map((it) => cardHTML(tab, it)).join("")}</div>` +
-        (hasMore ? `<div class="loadmore"><button class="mini-btn" id="btnLoadMore">加载更多（还剩 ${filtered.length - gridLimit} 张）</button></div>` : "");
+      tabBody.innerHTML = `<div class="tab-tools">${tools}</div>${filter}${meta}` +
+        (visible.length ? `<div class="grid">${visible.map((it) => cardHTML(tab, it)).join("")}</div>` : emptyResult()) +
+        (hasMore ? `<div class="loadmore"><button class="mini-btn" id="btnLoadMore">加载更多（还剩 ${filtered.length - lim} 张）</button></div>` : "");
     } else if (tab === "color") {
-      tabBody.innerHTML = `<div class="grid">${COLORS.map((it) => cardHTML("color", it)).join("")}</div>`;
+      const list = COLORS.filter((it) => assetMatches(it, "color", q));
+      tabBody.innerHTML = `<div class="lib-meta">共 ${list.length} 项${q ? ' · 搜索「' + esc(assetQuery.trim()) + '」' : ""}${favOnly ? " · 只看收藏" : ""}</div>` +
+        (list.length ? `<div class="grid">${list.map((it) => cardHTML("color", it)).join("")}</div>` : emptyResult());
     } else if (tab === "font") {
       renderFonts();
     } else if (tab === "character") {
-      const rows = state.characters.map((c) => `<div class="titem ${c.isMain ? "active" : ""}" data-cid="${c.id}" title="点击设为【主角】，拖入画布">
+      const chars = state.characters.filter((c) => assetMatches(c, "character", q));
+      const rows = chars.map((c) => `<div class="titem ${c.isMain ? "active" : ""}" data-cid="${c.id}" title="点击设为【主角】，拖入画布">
         <img src="${c.src}" alt="${c.name}"/><div class="badge">${c.isMain ? "主角" : "参考"}</div></div>`).join("");
       tabBody.innerHTML = `
         <div class="upload-pad" id="charPad">📸 上传你的角色图<br><small>（可传多张，锁定一个主角，生成图都保持同一人）</small></div>
@@ -567,7 +691,8 @@
       $("#charPad").onclick = () => pickFiles("character");
       bindThumbRow();
     } else if (tab === "mine") {
-      const rows = state.mine.map((m) => `<div class="titem" data-mid="${m.id}" title="点击或拖入画布">
+      const mine = state.mine.filter((m) => assetMatches(m, "mine", q));
+      const rows = mine.map((m) => `<div class="titem" data-mid="${m.id}" title="点击或拖入画布">
         <img src="${m.src}" alt="${m.name}"/></div>`).join("");
       tabBody.innerHTML = `
         <div class="upload-pad" id="minePad">🖼 上传图片<br><small>（照片 / logo / 素材，拖进画布自由组合）</small></div>
@@ -575,9 +700,20 @@
       $("#minePad").onclick = () => pickFiles("mine");
       bindThumbRow();
     }
-    // 绑定卡片拖拽 / 点击
+    // 绑定卡片拖拽 / 点击 / 收藏星标
     tabBody.querySelectorAll(".card").forEach((el) => {
       const t = el.dataset.tab, id = el.dataset.id;
+      const key = histKey(t, id);
+      const fav = document.createElement("button");
+      fav.type = "button";
+      fav.className = "fav-btn" + (favSet.has(key) ? " on" : "");
+      fav.textContent = "★";
+      fav.title = favSet.has(key) ? "取消收藏" : "收藏这张素材";
+      fav.setAttribute("data-fav", key);
+      fav.addEventListener("click", (e) => { e.stopPropagation(); toggleFav(key); });
+      fav.addEventListener("pointerdown", (e) => e.stopPropagation());
+      fav.addEventListener("dragstart", (e) => e.stopPropagation());
+      el.appendChild(fav);
       el.addEventListener("dragstart", (e) => {
         // 从字号层级按钮拖出时，由按钮自己处理，避免重复
         if (e.target.closest && e.target.closest(".role-chip")) return;
@@ -616,12 +752,16 @@
     tabBody.querySelectorAll(".cust-del").forEach((b) => {
       b.onclick = (e) => { e.stopPropagation(); removeCustomFont(b.dataset.fname); };
     });
+    renderRecent();
   }
 
   // 字体页：内置免费商用 + 自定义上传
   function renderFonts() {
-    const cards = FONTS.map((f) => cardHTML("font", f)).join("");
-    const customHtml = (state.customFonts || []).map((f) => `<div class="card font-card custom" draggable="true" data-tab="font" data-id="${f.name}">
+    const q = assetQuery.trim().toLowerCase();
+    const builtin = FONTS.filter((f) => assetMatches(f, "font", q));
+    const custom = (state.customFonts || []).filter((f) => assetMatches(f, "font", q));
+    const cards = builtin.map((f) => cardHTML("font", f)).join("");
+    const customHtml = custom.map((f) => `<div class="card font-card custom" draggable="true" data-tab="font" data-id="${f.name}">
         <div class="sample" style='font-family:${f.css}'>永和九年</div>
         <div class="fname">${f.name}</div>
         <div class="flic">${f.license || "自定义"}</div>
@@ -629,8 +769,8 @@
         ${roleRowHTML()}
       </div>`).join("");
     tabBody.innerHTML = `<div class="tab-tools"><button class="mini-btn" id="btnUpFont">＋ 上传字体（自定义）</button></div>` +
-      `<div class="grid">${cards}${customHtml}</div>` +
-      (customHtml ? "" : `<div class="rp-tip" style="margin:8px 2px">支持 .ttf / .otf / .woff / .woff2，上传后自动注册到本机浏览器，可直接拖入画布做文字层。</div>`);
+      (cards || customHtml ? `<div class="grid">${cards}${customHtml}</div>` : emptyResult()) +
+      (!customHtml ? `<div class="rp-tip" style="margin:8px 2px">支持 .ttf / .otf / .woff / .woff2，上传后自动注册到本机浏览器，可直接拖入画布做文字层。</div>` : "");
     const up = $("#btnUpFont"); if (up) up.onclick = uploadFont;
   }
 
@@ -743,6 +883,7 @@
     const hi = sel ? hitHandle(p) : -1;
     if (hi >= 0 && sel) {
       // 缩放模式：固定对角角点，记录初始尺寸
+      pushHistory("drag:" + sel.id);
       const b = layerBox(sel);
       const fx = (hi === 0 || hi === 2) ? b.x + b.w : b.x;
       const fy = (hi === 0 || hi === 1) ? b.y + b.h : b.y;
@@ -752,6 +893,7 @@
     }
     const hit = hitTest(p.x, p.y);
     if (hit) {
+      pushHistory("drag:" + hit.id);
       state.selectedId = hit.id;
       // 用图层自身坐标算偏移（旋转文字也不会跳动）
       drag = { mode: "move", id: hit.id, ox: p.x - (hit.x || 0), oy: p.y - (hit.y || 0) };
@@ -801,6 +943,7 @@
   canvas.addEventListener("dblclick", (e) => {
     const l = getLayer(state.selectedId);
     if (l && l.type === "text") {
+      pushHistory("textedit:" + l.id);
       const t = prompt("编辑文字：", l.text);
       if (t != null) { l.text = t; render(); }
     }
@@ -844,7 +987,10 @@
     return { w: d.w, h: d.h, ratio: rid, orient: ori, label: lbl };
   }
 
-  function buildPrompt() {
+  function buildPrompt(force) {
+    // 手动改过提示词后，素材/画幅变化不再擅自覆盖；点「恢复自动组装」传 force=true
+    if (promptManual && !force) return;
+    if (force && promptManual) setPromptManual(false);
     const c = state.current;
     const p = state.settings.prompt;
     const parts = [];
@@ -1187,6 +1333,156 @@
     renderRefPreview();
   }
 
+  // ---------- 出图后端状态灯 ----------
+  // 默认 mode 是 demo，不改设置只会出占位图；这里让它一眼可见、一点可切。
+  async function detectProxy() {
+    const base = proxyBase();
+    try {
+      const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+      const timer = ctrl ? setTimeout(() => ctrl.abort(), 1200) : null;
+      const res = await fetch(base + "/v1/health", ctrl ? { signal: ctrl.signal } : undefined);
+      if (timer) clearTimeout(timer);
+      const j = await res.json();
+      backendOK = !!(res.ok && j.ok);
+    } catch (e) { backendOK = false; }
+    refreshBackendStatus();
+    return backendOK;
+  }
+  function refreshBackendStatus() {
+    const el = $("#backendStatus"); if (!el) return;
+    const m = state.settings.mode;
+    let cls = "demo", txt = "演示占位图", tip = "现在出的是渐变占位图，不是真图。点击检测本地代理";
+    if (m === "proxy") {
+      if (backendOK) { cls = "ok"; txt = "代理已连"; tip = "本地代理正常，参考图会真发给模型"; }
+      else { cls = "bad"; txt = "代理未启动"; tip = "双击「启动出图代理.command」，或点这里重新检测"; }
+    } else if (m === "openai") {
+      cls = "ok"; txt = "直连接口"; tip = "浏览器直连第三方接口，可能有 CORS 预检问题";
+    } else if (backendOK) {
+      txt = "演示占位图 · 代理可用"; tip = "本地代理已启动，点击即可切换为真实出图";
+    }
+    el.className = "bk-status " + cls;
+    el.textContent = txt;
+    el.title = tip;
+  }
+  function onBackendStatusClick() {
+    if (state.settings.mode === "openai") { openSettings("backend"); return; }
+    detectProxy().then((ok) => {
+      if (!ok) { toast("代理未启动：双击「启动出图代理.command」后再点一次"); openSettings("backend"); return; }
+      if (state.settings.mode !== "proxy") {
+        state.settings.mode = "proxy";
+        $("#setMode").value = "proxy";
+        $("#openaiFields").hidden = true;
+        $("#proxyFields").hidden = false;
+        persistSettings();
+        toast("已切换到本地代理 · 出真图");
+      } else toast("本地代理正常");
+      refreshBackendStatus();
+    });
+  }
+
+  // ---------- 一句话出图 ----------
+  // 关键词只做轻推荐；同一句用稳定 hash 选素材，结果可复现，方便回归测试。
+  function hashText(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return Math.abs(h) || 1; }
+  function pickByPrefix(arr, prefix, h) {
+    const pool = prefix ? arr.filter((x) => x.id.indexOf(prefix) === 0) : arr;
+    const list = pool.length ? pool : arr;
+    return list[h % list.length];
+  }
+  function pickRecipe(text) {
+    const t = (text || "").toLowerCase();
+    const h = hashText(text || "x");
+    let lp = "SC", sp = "FA";
+    if (/公众号|长图|文章|专栏/.test(t)) lp = "IP";
+    else if (/电商|详情|商品|淘宝/.test(t)) lp = "EC";
+    else if (/instagram|方形|头像|1:1|方图/.test(t)) lp = "IG";
+    if (/涂鸦|手绘|简笔|怪萌|线描|黑白|卡通|漫画|梗图|插画/.test(t)) sp = "FA";
+    else if (/国风|水墨|毛笔|书法|古风/.test(t)) sp = "FH";
+    else if (/水彩|温柔|治愈|清新|柔和/.test(t)) sp = "FB";
+    const wanted = ["蓝", "粉", "绿", "黄", "橙", "灰", "红", "紫"].find((k) => t.indexOf(k) >= 0);
+    const color = (wanted && COLORS.find((c) => c.name.indexOf(wanted) >= 0)) || COLORS[h % COLORS.length];
+    let ratioIdx = 0;
+    if (/方图|正方形|头像|1:1/.test(t)) ratioIdx = 1;
+    else if (/横版|宽屏|16:9|banner|题图/.test(t)) ratioIdx = 2;
+    else if (/竖屏|9:16|手机壁纸/.test(t)) ratioIdx = 3;
+    return { style: pickByPrefix(allStyles(), sp, h), layout: pickByPrefix(LAYOUTS, lp, h), color, ratioIdx };
+  }
+  async function quickMake() {
+    const text = $("#quickInput").value.trim();
+    if (!text) { toast("先写一句话，例如：橘猫晒太阳的小红书封面"); $("#quickInput").focus(); return; }
+    // 工作台模式下先切回成图编辑器，否则生成了也看不见
+    if (document.body.classList.contains("wb-active") && window.AIWorkbench && window.AIWorkbench.setMode) {
+      try { window.AIWorkbench.setMode(false); } catch (e) {}
+    }
+    const rec = pickRecipe(text);
+    suppressHistory = false; pushHistory("quick");
+    $("#inpSubject").value = text;
+    $("#inpContent").value = "";
+    setPromptManual(false);
+    if (rec.ratioIdx !== state.ratioIdx) {
+      state.ratioIdx = rec.ratioIdx;
+      $("#ratioSelect").value = String(rec.ratioIdx);
+      $("#customSize").hidden = true;
+      setCanvasSize();
+    }
+    // 只设置选中状态，不往画布堆参考图：collectRefs() 是从 state.current 读图的，
+    // 参考图照样会发给代理；画布只留最终生成图，结果一眼可见。
+    state.current.style = rec.style;
+    state.current.layout = rec.layout;
+    state.current.color = rec.color;
+    noteRecent("style", rec.style.id);
+    noteRecent("layout", rec.layout.id);
+    noteRecent("color", rec.color.id);
+    refreshChips();
+    buildPrompt(true);
+    const qn = $("#quickNote");
+    qn.textContent = "已自动配好：" + [rec.style.id, rec.layout.id, rec.color.name].join(" / ");
+    qn.hidden = false;
+    if (state.settings.mode !== "openai") {
+      const ok = await detectProxy();
+      if (ok && state.settings.mode !== "proxy") {
+        state.settings.mode = "proxy";
+        $("#setMode").value = "proxy";
+        $("#openaiFields").hidden = true;
+        $("#proxyFields").hidden = false;
+        persistSettings();
+        refreshBackendStatus();
+      } else if (!ok) {
+        toast("代理未启动，先出演示占位图；双击「启动出图代理.command」出真图");
+      }
+    }
+    await generate();
+  }
+
+  function copyPrompt() {
+    const text = promptOut.value;
+    const done = () => toast("提示词已复制");
+    const fallback = () => {
+      promptOut.select();
+      try { document.execCommand("copy"); done(); } catch (e) { toast("复制失败，请手动选中复制"); }
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, fallback);
+    } else fallback();
+  }
+  function bindQuickKeys() {
+    window.addEventListener("keydown", (e) => {
+      if (document.body.classList.contains("wb-active")) return;  // 工作台自己处理 Ctrl+Z
+      if (!$("#settingsMask").hidden) return;
+      const meta = e.metaKey || e.ctrlKey;
+      if (!meta) return;
+      const k = (e.key || "").toLowerCase();
+      if (k === "z" && !e.shiftKey) { e.preventDefault(); undo(); return; }
+      if (k === "y" || (k === "z" && e.shiftKey)) { e.preventDefault(); redo(); return; }
+      if (e.key === "Enter") {
+        if (e.target && e.target.id === "quickInput") return; // 交给输入框自己的一句话出图
+        e.preventDefault(); generate();
+      }
+    });
+    $("#quickInput").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); quickMake(); }
+    });
+  }
+
   // ---------- 出图 ----------
   async function generate() {
     buildPrompt();
@@ -1389,6 +1685,9 @@
     persistSettings();
     $("#openaiFields").hidden = state.settings.mode !== "openai";
     $("#proxyFields").hidden = state.settings.mode !== "proxy";
+    // 设置里改了模式，顶栏状态灯必须立刻跟着变
+    refreshBackendStatus();
+    if (state.settings.mode === "proxy") detectProxy();
     closeSettings();
     toast("设置已保存");
   }
@@ -1476,6 +1775,7 @@
     $("#btnExportJson").onclick = exportJson;
     $("#btnExportMd").onclick = exportMd;
     $("#btnClear").onclick = () => {
+      pushHistory("clear");
       state.layers = []; state.selectedId = null; emptyState.style.display = "";
       refreshLayers(); render(); notifyLayerChanged();
     };
@@ -1586,6 +1886,29 @@
     loadSettings();
     registerCustomFonts();
 
+    // 快捷体验：一句话出图 / 状态灯 / 提示词编辑 / 素材检索 / 快捷键
+    $("#btnQuickMake").onclick = quickMake;
+    $("#backendStatus").onclick = onBackendStatusClick;
+    $("#btnPromptCopy").onclick = copyPrompt;
+    $("#btnPromptReset").onclick = () => { buildPrompt(true); toast("已按素材重新组装提示词"); };
+    promptOut.addEventListener("input", () => { if (!promptManual) setPromptManual(true); });
+    const activeTab = () => tabsEl.querySelector(".tab.active").dataset.tab;
+    $("#assetSearch").addEventListener("input", (e) => { assetQuery = e.target.value; renderTab(activeTab()); });
+    $("#btnFavOnly").onclick = () => {
+      favOnly = !favOnly;
+      $("#btnFavOnly").classList.toggle("on", favOnly);
+      renderTab(activeTab());
+    };
+    // 文字属性控件连续拖动合并成一步撤销
+    $("#textProps").addEventListener("pointerdown", () => pushHistory("tp:" + (state.selectedId || "")), true);
+    $("#textProps").addEventListener("input", () => pushHistory("tp:" + (state.selectedId || "")), true);
+    renderRecent();
+    bindQuickKeys();
+    refreshBackendStatus();
+    // 只在用户真的启用了代理时自动探测；demo 模式首屏不发这个请求，
+    // 否则浏览器会打出 ERR_CONNECTION_REFUSED 的 console error，还会拖慢 networkidle2。
+    if (state.settings.mode === "proxy") detectProxy();
+
     refreshChips(); buildPrompt(); refreshLayers();
   }
 
@@ -1627,6 +1950,7 @@
 
   function loadBoard(b) {
     if (!b) return;
+    setPromptManual(false);   // 载入别的画板，自动组装优先
     state.ratioIdx = Number.isFinite(b.ratioIdx) ? b.ratioIdx : 0;
     state.customSize = {
       w: (b.customSize && b.customSize.w) || 1024,
@@ -1665,10 +1989,22 @@
 
   window.AICanvas = {
     getBoard, loadBoard, snapshot, getAssetInfo, addFromCard,
-    curDims, toast,
+    curDims, toast, quickMake, undo, redo, detectProxy,
     ratios: () => RATIOS,
     hasLayers: () => state.layers.length > 0,
     onLayerChange: (cb) => { layerChangeHook = cb; },
+    // 只读诊断，供 tools/quick-make-smoke-test.js 核对状态
+    debug: () => ({
+      layers: state.layers.length,
+      current: JSON.parse(JSON.stringify(state.current)),
+      prompt: promptOut.value, promptManual,
+      undoLen: undoStack.length, redoLen: redoStack.length,
+      recent: recentList.slice(), favs: [...favSet], favOnly, assetQuery,
+      backendOK, mode: state.settings.mode, ratioIdx: state.ratioIdx,
+      quickNote: $("#quickNote").textContent,
+      backendText: $("#backendStatus").textContent,
+      backendClass: $("#backendStatus").className,
+    }),
   };
 
   document.addEventListener("DOMContentLoaded", init);
