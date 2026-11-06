@@ -12,7 +12,7 @@
   <link rel="stylesheet" href="https://cdn.staticfile.org/lxgw-wenkai-screen-webfont/1.7.0/style.css" />
   <link rel="stylesheet" href="https://unpkg.com/misans@5.0.0/lib/Normal/MiSans-Regular.min.css" />
   <link rel="stylesheet" href="https://unpkg.com/misans@5.0.0/lib/Normal/MiSans-Bold.min.css" />
-  <link rel="stylesheet" href="styles.css?v=20261105e" />
+  <link rel="stylesheet" href="styles.css?v=20261106a" />
 </head>
 <body>
   <!-- 顶栏 -->
@@ -31,6 +31,7 @@
           <input id="customW" class="num" type="number" min="64" max="4096" value="1024" title="宽" /> ×
           <input id="customH" class="num" type="number" min="64" max="4096" value="1366" title="高" /> px
         </span>
+        <button id="btnWorkbench" class="btn ghost" title="无限工作台：多画板并排、缩放平移、自动保存">⛶ 工作台</button>
         <button id="btnSettings" class="btn ghost" title="出图后端 / 上传 / 提示词 / 自定义风格">⚙ 设置</button>
         <span class="attr" title="handraw-style 为 MIT 授权，须保留署名">风格库来源：yang0/handraw-style</span>
       </div>
@@ -67,7 +68,46 @@
         </div>
         <div class="drop-hint" id="dropHint">松手放入画布</div>
       </div>
-      <div class="stage-foot">
+
+      <!-- 无限工作台：多画板并排 / 自由缩放平移 / 自动保存 -->
+      <div class="workbench glass" id="workbench" hidden>
+        <div class="wb-toolbar">
+          <div class="wb-tb-group">
+            <select id="wbList" class="wb-select" title="切换工作台"></select>
+            <button class="btn btn-xs" id="wbNew">新建</button>
+            <button class="btn btn-xs" id="wbRename">重命名</button>
+            <button class="btn btn-xs" id="wbDup">复制</button>
+            <button class="btn btn-xs" id="wbImport">导入</button>
+            <button class="btn btn-xs" id="wbExport">导出</button>
+            <button class="btn btn-xs danger" id="wbDel">删除</button>
+            <span class="wb-dirty" id="wbDirty" hidden>未保存</span>
+          </div>
+          <div class="wb-tb-group">
+            <button class="btn btn-xs primary" id="wbAddBoard">＋ 画板</button>
+            <button class="btn btn-xs" id="wbAddNote">＋ 便签</button>
+            <button class="btn btn-xs" id="wbEditBoard">✎ 编辑画板</button>
+            <button class="btn btn-xs" id="wbFit">适应视图</button>
+            <button class="btn btn-xs" id="wbSave">保存</button>
+          </div>
+        </div>
+        <div class="wb-viewport" id="wbViewport">
+          <div class="wb-world" id="wbWorld"></div>
+          <div class="wb-minimap" id="wbMinimap">
+            <div class="wb-mm-inner" id="wbMmInner"></div>
+            <div class="wb-mm-view" id="wbMmView"></div>
+          </div>
+          <div class="wb-zoom" id="wbZoom">
+            <button data-z="out" title="缩小">−</button>
+            <button class="wb-pct" data-z="reset" title="重置为 100%">100%</button>
+            <button data-z="in" title="放大">＋</button>
+            <button data-z="map" title="显示 / 隐藏小地图">地图</button>
+          </div>
+          <div class="wb-empty" id="wbEmpty" hidden>工作台是空的 · 点「＋ 画板」新建，或把左侧素材拖进来</div>
+          <div class="wb-tip">滚轮缩放 · 拖空白平移 · 双击画板进入编辑 · 拖素材到画板上直接加入图层 · 拖到空白成为图片节点 · Del 删除选中</div>
+        </div>
+      </div>
+
+      <div class="stage-foot" id="stageFoot">
         <button class="btn primary" id="btnGenerate">⚡ 生成底图</button>
         <button class="btn" id="btnExportPng">导出 PNG</button>
         <button class="btn" id="btnExportJson">配方 JSON</button>
@@ -248,7 +288,8 @@
 
   <div id="toast" class="toast" hidden></div>
 
-  <script src="data.js?v=20261105e"></script>
-  <script src="app.js?v=20261105e"></script>
+  <script src="data.js?v=20261106a"></script>
+  <script src="app.js?v=20261106a"></script>
+  <script src="workbench.js?v=20261106a"></script>
 </body>
 </html>

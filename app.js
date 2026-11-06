@@ -210,12 +210,14 @@
     if (layer.type === "image" && layer.src) getImage(layer.src);
     refreshLayers();
     render();
+    notifyLayerChanged();
   }
   function removeLayer(id) {
     state.layers = state.layers.filter((l) => l.id !== id);
     if (state.selectedId === id) state.selectedId = null;
     if (state.layers.length === 0) emptyState.style.display = "";
     refreshLayers(); render();
+    notifyLayerChanged();
   }
   function bringToFront(id) {
     const i = state.layers.findIndex((l) => l.id === id);
@@ -468,6 +470,7 @@
       addLayer({ type: "image", src: m.src, x: cx - side / 2, y: cy - side / 2, w: side, h: side, name: m.name || "图片" });
     }
     refreshChips(); buildPrompt();
+    notifyLayerChanged();
   }
 
   // ---------- 素材中心渲染 ----------
@@ -1020,6 +1023,7 @@
       const color = state.current.color ? state.current.color.hex : "#c7d2fe";
       const dataUrl = makeDemoImage(prompt, color);
       addLayer({ type: "image", src: dataUrl, x: canvas.width * 0.12, y: canvas.height * 0.12, w: canvas.width * 0.76, h: canvas.height * 0.76, name: "生成底图(演示)" });
+      notifyGenerated(dataUrl, "生成底图(演示)");
       toast("演示底图已生成（填 API 出真图）");
     } else {
       toast("正在调用接口生成…");
@@ -1042,6 +1046,7 @@
         imgCache[imgUrl] = null;
         getImage(imgUrl, () => { toast("真图已生成"); });
         addLayer({ type: "image", src: imgUrl, x: canvas.width * 0.12, y: canvas.height * 0.12, w: canvas.width * 0.76, h: canvas.height * 0.76, name: "生成底图" });
+        notifyGenerated(imgUrl, "生成底图");
         if (!imgCache[imgUrl]) { /* 等待 onload 重绘 */ }
       } catch (err) {
         toast("生成失败：" + err.message);
@@ -1268,7 +1273,7 @@
     $("#btnExportMd").onclick = exportMd;
     $("#btnClear").onclick = () => {
       state.layers = []; state.selectedId = null; emptyState.style.display = "";
-      refreshLayers(); render();
+      refreshLayers(); render(); notifyLayerChanged();
     };
 
     // 文字属性控件
@@ -1372,6 +1377,88 @@
 
     refreshChips(); buildPrompt(); refreshLayers();
   }
+
+  // ==========================================================
+  // 无限工作台接入点（只读状态 + 载入画板，不改动任何既有编辑逻辑）
+  // workbench.js 通过 window.AICanvas 调用；编辑模式的坐标系保持独立，
+  // 因此工作台的 translate/scale 不会影响拖图命中与四角缩放手柄。
+  // ==========================================================
+  function notifyGenerated(src, name) {
+    try { window.AIWorkbench && window.AIWorkbench.onGenerated(src, name); } catch (e) { /* 工作台未加载时忽略 */ }
+  }
+
+  // 图层变化通知（60ms 防抖合并），供无限工作台刷新画板快照
+  var layerChangeHook = null;
+  var layerChangeTimer = null;
+  function notifyLayerChanged() {
+    if (layerChangeTimer) clearTimeout(layerChangeTimer);
+    layerChangeTimer = setTimeout(() => {
+      layerChangeTimer = null;
+      try { layerChangeHook && layerChangeHook(); } catch (e) { /* 工作台未加载 */ }
+    }, 60);
+  }
+
+  function snapshot() {
+    try { render(); return canvas.toDataURL("image/jpeg", 0.72); }
+    catch (e) { return null; }   // 画布被远程图污染时降级为占位
+  }
+
+  function getBoard() {
+    return {
+      ratioIdx: state.ratioIdx,
+      customSize: { w: state.customSize.w, h: state.customSize.h },
+      current: JSON.parse(JSON.stringify(state.current)),
+      layers: JSON.parse(JSON.stringify(state.layers)),
+      subject: $("#inpSubject").value,
+      content: $("#inpContent").value,
+    };
+  }
+
+  function loadBoard(b) {
+    if (!b) return;
+    state.ratioIdx = Number.isFinite(b.ratioIdx) ? b.ratioIdx : 0;
+    state.customSize = {
+      w: (b.customSize && b.customSize.w) || 1024,
+      h: (b.customSize && b.customSize.h) || 1366,
+    };
+    state.current = b.current
+      ? JSON.parse(JSON.stringify(b.current))
+      : { style: null, layout: null, color: null, font: null, character: null };
+    state.layers = Array.isArray(b.layers) ? JSON.parse(JSON.stringify(b.layers)) : [];
+    state.selectedId = null;
+
+    const sel = $("#ratioSelect");
+    sel.value = state.ratioIdx >= RATIOS.length ? "custom" : String(state.ratioIdx);
+    $("#customSize").hidden = sel.value !== "custom";
+    $("#customW").value = state.customSize.w;
+    $("#customH").value = state.customSize.h;
+    $("#inpSubject").value = b.subject || "";
+    $("#inpContent").value = b.content || "";
+
+    // 恢复后必须重新触发图片加载，否则又会出现「只有框没有图」
+    state.layers.forEach((l) => { if (l.type === "image" && l.src) getImage(l.src); });
+    setCanvasSize();
+    refreshChips(); refreshLayers(); updateTextProps();
+    emptyState.style.display = state.layers.length ? "none" : "";
+  }
+
+  function getAssetInfo(tab, id) {
+    if (tab === "style") { const s = allStyles().find((x) => x.id === id); return s ? { src: s.img, name: s.name || s.id } : null; }
+    if (tab === "layout") { const l = LAYOUTS.find((x) => x.id === id); return l ? { src: l.img, name: l.name || l.id } : null; }
+    if (tab === "color") { const c = COLORS.find((x) => x.id === id); return c ? { src: c.img, name: c.name || c.id } : null; }
+    if (tab === "character") { const c = state.characters.find((x) => x.id === id); return c ? { src: c.src, name: c.name || c.id } : null; }
+    if (tab === "mine") { const m = state.mine.find((x) => x.id === id); return m ? { src: m.src, name: m.name || "图片" } : null; }
+    if (tab === "font") return { src: null, name: id };
+    return null;
+  }
+
+  window.AICanvas = {
+    getBoard, loadBoard, snapshot, getAssetInfo, addFromCard,
+    curDims, toast,
+    ratios: () => RATIOS,
+    hasLayers: () => state.layers.length > 0,
+    onLayerChange: (cb) => { layerChangeHook = cb; },
+  };
 
   document.addEventListener("DOMContentLoaded", init);
 })();
