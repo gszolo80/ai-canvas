@@ -148,6 +148,9 @@ function findChrome() {
   check('拖到画板加入图层且工作台保持可见', s7.wb && s7.snaps >= 1, s7);
 
   // 8. 真实鼠标双击进入编辑（不依赖 dblclick 事件合成）
+  // 先「适应视图」把所有节点收回视野：新建画板会把相机聚焦到新板，旧板可能移出屏幕
+  await page.click('#wbFit');
+  await sleep(400);
   const b8 = await page.evaluate(() => {
     const el = document.querySelector('.wb-board .wb-board-body');
     const r = el.getBoundingClientRect();

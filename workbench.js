@@ -727,11 +727,13 @@
       toast("已导出工作台 JSON（含图片）");
     };
     $("#wbAddBoard").onclick = () => {
-      const r = viewportEl.getBoundingClientRect();
-      const p = toWorld(r.left + r.width / 2, r.top + r.height / 2);
-      const n = addBoardNode(p.x - 130, p.y - 170);
+      // 排到已有节点最右侧，避免新画板盖在旧画板上
+      const right = W.nodes.length ? Math.max(...W.nodes.map((n) => n.x + n.w)) : 60;
+      const top = W.nodes.length ? Math.min(...W.nodes.map((n) => n.y)) : 80;
+      const n = addBoardNode(right + 60, top);
       selection = new Set([n.id]);
       renderNodes(); markDirty();
+      centerOn(n.x + n.w / 2, n.y + 160);
       toast("已新建画板，双击进入编辑");
     };
     $("#wbAddNote").onclick = () => {
