@@ -1605,39 +1605,64 @@
   }
   function closeVariants() { const m = $("#variantMask"); if (m) m.hidden = true; }
 
-  // ---------- 图片选择弹窗：展示全部图片做选择 ----------
-  function openImagePicker(type) {
-    const mask = $("#imgPickerMask"), grid = $("#imgPickerGrid"), hint = $("#imgPickerHint"), head = $("#imgPickerHead");
-    if (!mask || !grid) return;
-    let items = [], title = "选择图片", hintText = "点任意一张图片即可加入画布；角色图会同时锁定为主角。";
-    if (type === "style") {
-      items = allStyles().map((it) => ({ tab: "style", id: it.id, src: it.img, name: it.name || it.id }));
-      title = "全部风格"; hintText = "点任意一张风格即可加入画布。";
-    } else if (type === "layout") {
-      items = LAYOUTS.map((it) => ({ tab: "layout", id: it.id, src: it.img, name: it.name || it.id }));
-      title = "全部排版"; hintText = "点任意一张排版即可加入画布。";
-    } else if (type === "color") {
-      items = COLORS.map((it) => ({ tab: "color", id: it.id, color: colorHex(it), name: it.name }));
-      title = "全部配色"; hintText = "点任意一块配色即可加入画布。";
-    } else {
-      (state.mine || []).forEach((m) => items.push({ tab: "mine", id: m.id, src: m.src, name: m.name || "图片" }));
-      (state.characters || []).forEach((c) => items.push({ tab: "character", id: c.id, src: c.src, name: c.name || "角色", isChar: true }));
-      title = "选择图片"; hintText = "点任意一张图片即可加入画布；角色图会同时锁定为主角。";
+  // ---------- 图片选择弹窗：展示全部图片做选择（带分类筛选） ----------
+  let pickerType = null, pickerCat = "全部";
+  function pickerBaseItems(type) {
+    if (type === "style") return allStyles().map((it) => ({ tab: "style", id: it.id, src: it.img, name: it.name || it.id }));
+    if (type === "layout") return LAYOUTS.map((it) => ({ tab: "layout", id: it.id, src: it.img, name: it.name || it.id }));
+    if (type === "color") return COLORS.map((it) => ({ tab: "color", id: it.id, color: colorHex(it), name: it.name }));
+    const arr = [];
+    (state.mine || []).forEach((m) => arr.push({ tab: "mine", id: m.id, src: m.src, name: m.name || "图片" }));
+    (state.characters || []).forEach((c) => arr.push({ tab: "character", id: c.id, src: c.src, name: c.name || "角色", isChar: true }));
+    return arr;
+  }
+  function pickerCatInfo(type) {
+    if (type === "style") return { cats: ["全部"].concat(Object.values(STYLE_CATS)), fn: styleCat };
+    if (type === "layout") return { cats: ["全部"].concat(Object.values(LAYOUT_CATS)), fn: layoutCat };
+    return { cats: [], fn: null };
+  }
+  function renderPickerCats() {
+    const wrap = $("#imgPickerCats");
+    if (!wrap) return;
+    const info = pickerCatInfo(pickerType);
+    if (!info.cats.length) { wrap.hidden = true; wrap.innerHTML = ""; return; }
+    wrap.hidden = false;
+    wrap.innerHTML = info.cats.map((c) => `<button type="button" class="ip-cat ${c === pickerCat ? "active" : ""}" data-cat="${esc(c)}">${esc(c)}</button>`).join("");
+    wrap.querySelectorAll(".ip-cat").forEach((b) => {
+      b.onclick = () => { pickerCat = b.dataset.cat; renderPickerCats(); renderPickerGrid(); };
+    });
+  }
+  function renderPickerGrid() {
+    const grid = $("#imgPickerGrid");
+    if (!grid) return;
+    const info = pickerCatInfo(pickerType);
+    let items = pickerBaseItems(pickerType);
+    if (pickerCat !== "全部" && info.fn) items = items.filter((it) => info.fn(it.id) === pickerCat);
+    if (!items.length) {
+      grid.innerHTML = `<div class="layer-empty" style="padding:26px 4px;grid-column:1/-1">${pickerType === "color" ? "该分类下还没有配色" : "该分类下还没有图片"}</div>`;
+      return;
     }
+    grid.innerHTML = items.map((it) => {
+      if (it.color) return `<div class="ip-item ip-color" data-tab="color" data-id="${esc(it.id)}" title="${esc(it.name)} · 点击加入画布"><div class="ip-swatch" style="background:${it.color}"></div><div class="ip-name">${esc(it.name)}</div></div>`;
+      const thumb = it.src ? `<img src="${it.src}" alt="${esc(it.name)}" onerror="this.style.display='none'"/>` : `<div class="ip-ph">${esc(it.name)}</div>`;
+      return `<div class="ip-item" data-tab="${esc(it.tab)}" data-id="${esc(it.id)}" title="${esc(it.name)} · 点击加入画布"><div class="ip-thumb">${thumb}</div>${it.isChar ? '<div class="ip-badge">角色</div>' : ""}<div class="ip-name">${esc(it.name)}</div></div>`;
+    }).join("");
+    grid.querySelectorAll(".ip-item").forEach((el) => {
+      el.onclick = () => { addFromCard(el.dataset.tab, el.dataset.id, null); closeImagePicker(); };
+    });
+  }
+  function openImagePicker(type) {
+    const mask = $("#imgPickerMask"), hint = $("#imgPickerHint"), head = $("#imgPickerHead");
+    if (!mask) return;
+    pickerType = type || "mine"; pickerCat = "全部";
+    let title = "选择图片", hintText = "点任意一张图片即可加入画布；角色图会同时锁定为主角。";
+    if (pickerType === "style") { title = "全部风格"; hintText = "点任意一张风格即可加入画布；上方可按分类筛选。"; }
+    else if (pickerType === "layout") { title = "全部排版"; hintText = "点任意一张排版即可加入画布；上方可按分类筛选。"; }
+    else if (pickerType === "color") { title = "全部配色"; hintText = "点任意一块配色即可加入画布。"; }
     if (head) head.textContent = "🖼 " + title;
     if (hint) hint.textContent = hintText;
-    if (!items.length) {
-      grid.innerHTML = `<div class="layer-empty" style="padding:26px 4px;grid-column:1/-1">${type === "color" ? "还没有配色" : "还没有图片，先上传图片或角色图吧（左侧「上传图片 / 角色图」）。"}</div>`;
-    } else {
-      grid.innerHTML = items.map((it) => {
-        if (it.color) return `<div class="ip-item ip-color" data-tab="color" data-id="${esc(it.id)}" title="${esc(it.name)} · 点击加入画布"><div class="ip-swatch" style="background:${it.color}"></div><div class="ip-name">${esc(it.name)}</div></div>`;
-        const img = it.src ? `<img src="${it.src}" alt="${esc(it.name)}" onerror="this.style.display='none'"/>` : `<div class="ip-ph">${esc(it.name)}</div>`;
-        return `<div class="ip-item" data-tab="${esc(it.tab)}" data-id="${esc(it.id)}" title="${esc(it.name)} · 点击加入画布">${img}${it.isChar ? '<div class="ip-badge">角色</div>' : ""}<div class="ip-name">${esc(it.name)}</div></div>`;
-      }).join("");
-      grid.querySelectorAll(".ip-item").forEach((el) => {
-        el.onclick = () => { addFromCard(el.dataset.tab, el.dataset.id, null); closeImagePicker(); };
-      });
-    }
+    renderPickerCats();
+    renderPickerGrid();
     mask.hidden = false;
   }
   function closeImagePicker() { const m = $("#imgPickerMask"); if (m) m.hidden = true; }
